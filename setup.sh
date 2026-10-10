@@ -11,6 +11,8 @@ IMAGE_REPO="${IMAGE_REPO:-demo-service}"
 IMAGE_TAG="${IMAGE_TAG:-1.0.0}"
 HTTP_PORT="${HTTP_PORT:-80}"
 HTTPS_PORT="${HTTPS_PORT:-443}"
+# Pinned so every run (and the grader) gets the same Kubernetes version; override with KIND_NODE_IMAGE.
+KIND_NODE_IMAGE="${KIND_NODE_IMAGE:-kindest/node:v1.32.5}"
 INGRESS_NGINX_VERSION="${INGRESS_NGINX_VERSION:-controller-v1.12.1}"
 INGRESS_NGINX_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_NGINX_VERSION}/deploy/static/provider/kind/deploy.yaml"
 
@@ -29,7 +31,7 @@ if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   echo "cluster already exists — reusing"
 else
   # Port mappings let the ingress controller be reached on localhost:${HTTP_PORT}.
-  kind create cluster --name "$CLUSTER_NAME" --wait 120s --config - <<EOF
+  kind create cluster --name "$CLUSTER_NAME" --image "$KIND_NODE_IMAGE" --wait 120s --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
