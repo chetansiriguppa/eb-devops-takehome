@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage: validate and byte-compile the source ----
-FROM python:3.12.7-slim-bookworm AS builder
+FROM python:3.12.15-slim-trixie AS builder
 WORKDIR /build
 COPY app.py .
 RUN python -m py_compile app.py \
@@ -9,7 +9,7 @@ RUN python -m py_compile app.py \
  && python -m compileall -q .
 
 # ---- runtime stage: minimal image, non-root ----
-FROM python:3.12.7-slim-bookworm AS runtime
+FROM python:3.12.15-slim-trixie AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
