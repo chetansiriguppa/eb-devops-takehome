@@ -71,10 +71,17 @@ kind load docker-image "${IMAGE_REPO}:${IMAGE_TAG}" --name "$CLUSTER_NAME"
 
 # ---------------------------------------------------------------------------
 log "helm release '${RELEASE}' in namespace '${NAMESPACE}'"
+HELM_EXTRA_ARGS=()
+# Helm 4 uses server-side apply; an out-of-band `kubectl patch` on the ConfigMap would
+# otherwise make the upgrade fail with a field-manager conflict. Chart values must win.
+if helm upgrade --help 2>/dev/null | grep -q -- '--force-conflicts'; then
+  HELM_EXTRA_ARGS+=(--force-conflicts)
+fi
 helm upgrade --install "$RELEASE" ./chart \
   --namespace "$NAMESPACE" --create-namespace \
   --set image.repository="$IMAGE_REPO" \
   --set image.tag="$IMAGE_TAG" \
+  ${HELM_EXTRA_ARGS[@]+"${HELM_EXTRA_ARGS[@]}"} \
   --wait --timeout 180s
 
 # ---------------------------------------------------------------------------
