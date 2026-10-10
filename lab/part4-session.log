@@ -1,0 +1,1110 @@
+
+$ date; kubectl config current-context; echo "--- Part 4 session start ---"
+Sat Oct 10 15:30:25 IST 2026
+kind-demo
+--- Part 4 session start ---
+
+$ ./scenario.sh up
+==> applying cluster environment (cluster-state/)
+namespace/debug-lab created
+Error from server (NotFound): error when creating "cluster-state/limits.yaml": namespaces "debug-lab" not found
+==> installing the broken chart
+Release "debug-lab" does not exist. Installing it now.
+Error: server-side apply failed for object debug-lab/migrate batch/v1, Kind=Job: Job.batch "migrate" is invalid: spec.template.spec.restartPolicy: Required value: valid values: "OnFailure", "Never"
+
+[2mhelm reported an error. That is not your machine misbehaving —[0m
+[2mit is part of the exercise. Read the error; it is evidence.[0m
+
+Lab is (partially) installed. Investigate with kubectl, fix the chart,
+re-run './scenario.sh up' to apply your fixes, and './scenario.sh verify'
+to check progress.
+
+$ ./scenario.sh verify
+==> verifying goal state in namespace debug-lab
+  [31mFAIL[0m  migrate Job has not completed (does it exist? did the chart even install cleanly?)
+  [31mFAIL[0m  deployment backend: 0/1 ready
+  [31mFAIL[0m  deployment gateway: 0/1 ready
+  [31mFAIL[0m  deployment worker: 0/1 ready
+  [31mFAIL[0m  deployment reporter: 0/1 ready
+  [31mFAIL[0m  deployment metrics: 0/1 ready
+  [32mPASS[0m  no pods in CrashLoopBackOff
+  [31mFAIL[0m  ServiceAccount debug-lab/reporter cannot list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m10 check(s) failing[0m, 1 passing. Keep digging — every failure is a symptom.
+
+$ kubectl -n debug-lab get all,limitrange,sa,role,rolebinding
+NAME                            READY   STATUS                       RESTARTS   AGE
+pod/backend-7948fd6b4b-78wfl    0/1     CreateContainerConfigError   0          21s
+pod/gateway-5cbdcd4bf8-6xxb7    0/1     CreateContainerConfigError   0          21s
+pod/metrics-547dccf75-qfvkp     0/1     CreateContainerConfigError   0          21s
+pod/reporter-6f8bff6b8d-qv49t   0/1     CreateContainerConfigError   0          21s
+pod/worker-5fcd6b9b6b-75422     0/1     CreateContainerConfigError   0          21s
+
+NAME               TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/backend    ClusterIP   10.96.48.187    <none>        8080/TCP   21s
+service/gateway    ClusterIP   10.96.135.216   <none>        80/TCP     21s
+service/reporter   ClusterIP   10.96.255.243   <none>        8080/TCP   21s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/backend    0/1     1            0           21s
+deployment.apps/gateway    0/1     1            0           21s
+deployment.apps/metrics    0/1     1            0           21s
+deployment.apps/reporter   0/1     1            0           21s
+deployment.apps/worker     0/1     1            0           21s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/backend-7948fd6b4b    1         1         0       21s
+replicaset.apps/gateway-5cbdcd4bf8    1         1         0       21s
+replicaset.apps/metrics-547dccf75     1         1         0       21s
+replicaset.apps/reporter-6f8bff6b8d   1         1         0       21s
+replicaset.apps/worker-5fcd6b9b6b     1         1         0       21s
+
+NAME                      AGE
+serviceaccount/default    21s
+serviceaccount/reporter   21s
+
+NAME                                           CREATED AT
+role.rbac.authorization.k8s.io/reporter-read   2026-10-10T10:00:26Z
+
+NAME                                                  ROLE                 AGE
+rolebinding.rbac.authorization.k8s.io/reporter-read   Role/reporter-read   21s
+
+$ kubectl -n debug-lab describe pod -l app=backend | sed -n "/^Events/,\$p"
+Events:
+  Type     Reason     Age               From               Message
+  ----     ------     ----              ----               -------
+  Normal   Scheduled  30s               default-scheduler  Successfully assigned debug-lab/backend-7948fd6b4b-78wfl to demo-control-plane
+  Normal   Pulling    30s               kubelet            Pulling image "docker.io/ebinterview/eb-debug-app:1.0.1"
+  Normal   Pulled     19s               kubelet            Successfully pulled image "docker.io/ebinterview/eb-debug-app:1.0.1" in 1.365s (10.87s including waiting). Image size: 3279587 bytes.
+  Warning  Failed     6s (x3 over 19s)  kubelet            Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "backend-7948fd6b4b-78wfl_debug-lab(0d4e7a1d-45b9-49ba-9d8b-3763bbe0accf)", container: backend)
+  Normal   Pulled     6s (x2 over 18s)  kubelet            Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+
+$ kubectl -n debug-lab get events --sort-by=.lastTimestamp | tail -15
+19s         Normal    Pulling             pod/eb-verify-probe              Pulling image "busybox:1.36"
+19s         Normal    Scheduled           pod/eb-verify-probe              Successfully assigned debug-lab/eb-verify-probe to demo-control-plane
+14s         Normal    Created             pod/eb-verify-probe              Container created
+14s         Normal    Started             pod/eb-verify-probe              Container started
+14s         Normal    Pulled              pod/eb-verify-probe              Successfully pulled image "busybox:1.36" in 4.585s (4.586s including waiting). Image size: 1906887 bytes.
+11s         Normal    Pulled              pod/gateway-5cbdcd4bf8-6xxb7     Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+11s         Warning   Failed              pod/gateway-5cbdcd4bf8-6xxb7     Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "gateway-5cbdcd4bf8-6xxb7_debug-lab(a83dff65-b682-4064-87d7-7ab92dc1c39b)", container: gateway)
+9s          Normal    Pulled              pod/metrics-547dccf75-qfvkp      Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+9s          Warning   Failed              pod/reporter-6f8bff6b8d-qv49t    Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "reporter-6f8bff6b8d-qv49t_debug-lab(6dfe55e9-c957-4d70-8fef-21b76ef27cf8)", container: reporter)
+9s          Normal    Pulled              pod/reporter-6f8bff6b8d-qv49t    Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+9s          Warning   Failed              pod/metrics-547dccf75-qfvkp      Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "metrics-547dccf75-qfvkp_debug-lab(6fbff092-2dce-4097-8b90-826eae904393)", container: metrics)
+9s          Warning   Failed              pod/worker-5fcd6b9b6b-75422      Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "worker-5fcd6b9b6b-75422_debug-lab(db559076-ba72-4894-b0a8-4e170825f2bf)", container: worker)
+9s          Normal    Pulled              pod/worker-5fcd6b9b6b-75422      Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+6s          Normal    Pulled              pod/backend-7948fd6b4b-78wfl     Container image "docker.io/ebinterview/eb-debug-app:1.0.1" already present on machine and can be accessed by the pod
+6s          Warning   Failed              pod/backend-7948fd6b4b-78wfl     Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "backend-7948fd6b4b-78wfl_debug-lab(0d4e7a1d-45b9-49ba-9d8b-3763bbe0accf)", container: backend)
+
+$ docker pull -q docker.io/ebinterview/eb-debug-app:1.0.1 && docker image inspect docker.io/ebinterview/eb-debug-app:1.0.1 --format "User={{.Config.User}} Entrypoint={{.Config.Entrypoint}} Cmd={{.Config.Cmd}} Env={{.Config.Env}} ExposedPorts={{.Config.ExposedPorts}}"
+docker.io/ebinterview/eb-debug-app:1.0.1
+User=nonroot Entrypoint=[/eb-debug-app] Cmd=[] Env=[PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt] ExposedPorts=map[8081/tcp:{}]
+
+$ docker run --rm --entrypoint "" docker.io/ebinterview/eb-debug-app:1.0.1 cat /etc/passwd 2>&1 | tail -5 || true
+WARNING: The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: "cat": executable file not found in $PATH: unknown
+
+Run 'docker run --help' for more information
+
+$ cid=$(docker create --platform linux/amd64 docker.io/ebinterview/eb-debug-app:1.0.1) && docker cp "$cid":/etc/passwd - | tar -xO 2>/dev/null | grep -E "nonroot|root"; docker rm -f "$cid" >/dev/null
+root:x:0:0:root:/root:/sbin/nologin
+nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin
+
+$ git -C .. diff --stat lab/broken-chart; git -C .. diff lab/broken-chart/templates/migrate-job.yaml lab/broken-chart/values.yaml
+ lab/broken-chart/templates/backend.yaml     | 1 [32m+[m
+ lab/broken-chart/templates/gateway.yaml     | 1 [32m+[m
+ lab/broken-chart/templates/metrics.yaml     | 1 [32m+[m
+ lab/broken-chart/templates/migrate-job.yaml | 3 [32m++[m[31m-[m
+ lab/broken-chart/templates/reporter.yaml    | 1 [32m+[m
+ lab/broken-chart/templates/worker.yaml      | 1 [32m+[m
+ lab/broken-chart/values.yaml                | 3 [32m+++[m
+ 7 files changed, 10 insertions(+), 1 deletion(-)
+[1mdiff --git a/lab/broken-chart/templates/migrate-job.yaml b/lab/broken-chart/templates/migrate-job.yaml[m
+[1mindex e9d5aa2..d93b4ce 100644[m
+[1m--- a/lab/broken-chart/templates/migrate-job.yaml[m
+[1m+++ b/lab/broken-chart/templates/migrate-job.yaml[m
+[36m@@ -13,7 +13,7 @@[m [mspec:[m
+       labels:[m
+         app: migrate[m
+     spec:[m
+[31m-      restartPolicy: Always[m
+[32m+[m[32m      restartPolicy: OnFailure[m
+       containers:[m
+         - name: migrate[m
+           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"[m
+[36m@@ -27,6 +27,7 @@[m [mspec:[m
+               value: "2.0.0"[m
+           securityContext:[m
+             runAsNonRoot: true[m
+[32m+[m[32m            runAsUser: {{ .Values.common.runAsUser }}[m
+             readOnlyRootFilesystem: true[m
+             allowPrivilegeEscalation: false[m
+             capabilities:[m
+[1mdiff --git a/lab/broken-chart/values.yaml b/lab/broken-chart/values.yaml[m
+[1mindex 957713c..ab53f2b 100644[m
+[1m--- a/lab/broken-chart/values.yaml[m
+[1m+++ b/lab/broken-chart/values.yaml[m
+[36m@@ -14,6 +14,9 @@[m [mimage:[m
+ common:[m
+   # Every workload serves plain HTTP on this port.[m
+   port: 8080[m
+[32m+[m[32m  # The image's USER is the name "nonroot" (uid 65532 in its /etc/passwd); kubelet needs a[m
+[32m+[m[32m  # numeric uid to enforce runAsNonRoot.[m
+[32m+[m[32m  runAsUser: 65532[m
+ [m
+ backend:[m
+   replicas: 1[m
+
+$ ./scenario.sh up
+==> applying cluster environment (cluster-state/)
+limitrange/debug-lab-guardrails created
+namespace/debug-lab unchanged
+==> installing the broken chart
+Release "debug-lab" has been upgraded. Happy Helming!
+NAME: debug-lab
+LAST DEPLOYED: Sat Oct 10 15:31:55 2026
+NAMESPACE: [36mdebug-lab[0m
+STATUS: [32mdeployed[0m
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+debug-lab installed into namespace debug-lab.
+
+Goal state:
+  * migrate Job: Completed
+  * backend, gateway, worker, reporter, metrics: all pods Running and 1/1 Ready
+  * gateway /status reports {"self":"ok","backend":"ok",...}
+
+Check your progress at any time:
+  ./scenario.sh verify
+
+Lab is (partially) installed. Investigate with kubectl, fix the chart,
+re-run './scenario.sh up' to apply your fixes, and './scenario.sh verify'
+to check progress.
+
+$ sleep 25; kubectl -n debug-lab get pods,limitrange
+NAME                            READY   STATUS                       RESTARTS      AGE
+pod/backend-7948fd6b4b-78wfl    0/1     CreateContainerConfigError   0             115s
+pod/backend-794c558bfb-gfqzp    0/1     Running                      0             25s
+pod/gateway-5cbdcd4bf8-6xxb7    0/1     CreateContainerConfigError   0             115s
+pod/gateway-69d86c676-9pdv7     0/1     Running                      0             25s
+pod/metrics-547dccf75-qfvkp     0/1     CreateContainerConfigError   0             115s
+pod/migrate-g2gpg               0/1     Completed                    0             25s
+pod/reporter-689754d5bb-jszh8   0/1     Running                      0             25s
+pod/reporter-6f8bff6b8d-qv49t   0/1     CreateContainerConfigError   0             115s
+pod/worker-5fcd6b9b6b-75422     0/1     CreateContainerConfigError   0             115s
+pod/worker-85c774d568-2kzb2     0/1     CrashLoopBackOff             2 (11s ago)   25s
+
+NAME                              CREATED AT
+limitrange/debug-lab-guardrails   2026-10-10T10:01:55Z
+
+$ kubectl -n debug-lab logs deploy/worker --tail=20
+Found 2 pods, using pod/worker-85c774d568-2kzb2
+2026/10/10 10:02:09 FATAL: worker could not initialise its cache: mkdir /var/cache/app: read-only file system — the process needs a writable directory at /var/cache/app (mount a volume there, or set CACHE_DIR)
+
+$ kubectl -n debug-lab logs deploy/backend --tail=10
+Found 2 pods, using pod/backend-794c558bfb-gfqzp
+2026/10/10 10:01:56 eb-debug-app 2.0.0 starting: mode=api pod=backend-794c558bfb-gfqzp listening on :8081 (image default is 8081; set PORT to override)
+
+$ kubectl -n debug-lab describe pod -l app=backend | grep -E "Readiness|Warning" | tail -5
+    Readiness:  http-get http://:8080/healthz delay=3s timeout=3s period=5s #success=1 #failure=3
+  Warning  Failed     10s (x10 over 113s)  kubelet            Error: container has runAsNonRoot and image has non-numeric user (nonroot), cannot verify user is non-root (pod: "backend-7948fd6b4b-78wfl_debug-lab(0d4e7a1d-45b9-49ba-9d8b-3763bbe0accf)", container: backend)
+    Readiness:  http-get http://:8080/healthz delay=3s timeout=3s period=5s #success=1 #failure=3
+  Warning  Unhealthy  4s (x6 over 29s)  kubelet            Readiness probe failed: Get "http://10.244.0.22:8080/healthz": dial tcp 10.244.0.22:8080: connect: connection refused
+
+$ kubectl -n debug-lab describe rs -l app=metrics | sed -n "/^Events/,\$p"
+Events:
+  Type    Reason            Age   From                   Message
+  ----    ------            ----  ----                   -------
+  Normal  SuccessfulCreate  2m4s  replicaset-controller  Created pod: metrics-547dccf75-qfvkp
+
+
+Name:           metrics-6c57877dc7
+Namespace:      debug-lab
+Selector:       app=metrics,pod-template-hash=6c57877dc7
+Labels:         app=metrics
+                app.kubernetes.io/managed-by=Helm
+                app.kubernetes.io/part-of=eb-debug-lab
+                helm.sh/chart=debug-lab-2.0.0
+                pod-template-hash=6c57877dc7
+Annotations:    deployment.kubernetes.io/desired-replicas: 1
+                deployment.kubernetes.io/max-replicas: 2
+                deployment.kubernetes.io/revision: 2
+                meta.helm.sh/release-name: debug-lab
+                meta.helm.sh/release-namespace: debug-lab
+Controlled By:  Deployment/metrics
+Replicas:       0 current / 1 desired
+Pods Status:    0 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  app=metrics
+           app.kubernetes.io/managed-by=Helm
+           app.kubernetes.io/part-of=eb-debug-lab
+           helm.sh/chart=debug-lab-2.0.0
+           pod-template-hash=6c57877dc7
+  Containers:
+   metrics:
+    Image:      docker.io/ebinterview/eb-debug-app:1.0.1
+    Port:       8080/TCP
+    Host Port:  0/TCP
+    Limits:
+      cpu:     4
+      memory:  128Mi
+    Requests:
+      cpu:      2
+      memory:   64Mi
+    Readiness:  http-get http://:8080/healthz delay=3s timeout=3s period=5s #success=1 #failure=3
+    Environment:
+      APP_MODE:    api
+      APP_NAME:    metrics
+      VERSION:     2.0.0
+    Mounts:        <none>
+  Volumes:         <none>
+  Node-Selectors:  <none>
+  Tolerations:     <none>
+Conditions:
+  Type             Status  Reason
+  ----             ------  ------
+  ReplicaFailure   True    FailedCreate
+Events:
+  Type     Reason        Age                From                   Message
+  ----     ------        ----               ----                   -------
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-mcdl4" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-qjsvb" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-5n2kj" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-v7s4h" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-l5mrb" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-mdl6t" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-w9t47" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  34s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-fsfgw" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  33s                replicaset-controller  Error creating: pods "metrics-6c57877dc7-wsmx5" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+  Warning  FailedCreate  14s (x4 over 32s)  replicaset-controller  (combined from similar events): Error creating: pods "metrics-6c57877dc7-j8rwl" is forbidden: maximum cpu usage per Container is 1, but limit is 4
+
+$ git -C .. diff lab/broken-chart/values.yaml lab/broken-chart/templates/worker.yaml | grep -E "^[+-]" | grep -vE "^(\+\+\+|---)"
++            runAsUser: {{ .Values.common.runAsUser }}
++          volumeMounts:
++            - name: cache
++              mountPath: {{ .Values.worker.cacheDir }}
++      volumes:
++        - name: cache
++          emptyDir: {}
+-  # Every workload serves plain HTTP on this port.
+-  port: 8080
++  # Every workload serves plain HTTP on this port. The image listens on 8081 by default
++  # (confirmed from container logs); Services keep their public ports and target this.
++  port: 8081
++  # The image's USER is the name "nonroot" (uid 65532 in its /etc/passwd); kubelet needs a
++  # numeric uid to enforce runAsNonRoot.
++  runAsUser: 65532
++  # The worker writes its cache here; root fs stays read-only, so this is an emptyDir mount.
++  cacheDir: /var/cache/app
++  # Must stay under the namespace LimitRange max (cpu 1 / 512Mi) or pods are rejected at admission.
+-      cpu: "2"
++      cpu: "50m"
+-      cpu: "4"
++      cpu: "200m"
+
+$ ./scenario.sh up >/dev/null && sleep 30 && kubectl -n debug-lab get pods
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-64b799c9c4-lkxvv    1/1     Running     0          30s
+gateway-5d9b6db7d8-npwl8    0/1     Running     0          30s
+gateway-69d86c676-9pdv7     0/1     Running     0          97s
+metrics-758cd6c755-fbrsd    1/1     Running     0          30s
+migrate-g2gpg               0/1     Completed   0          97s
+reporter-54677cbb78-frtgt   0/1     Running     0          30s
+reporter-689754d5bb-jszh8   0/1     Running     0          97s
+worker-89d8c47d7-vn2cx      1/1     Running     0          30s
+
+$ ./scenario.sh verify
+==> verifying goal state in namespace debug-lab
+  [32mPASS[0m  migrate Job completed
+  [32mPASS[0m  deployment backend: 1/1 ready
+  [31mFAIL[0m  deployment gateway: 0/1 ready
+  [32mPASS[0m  deployment worker: 1/1 ready
+  [31mFAIL[0m  deployment reporter: 0/1 ready
+  [32mPASS[0m  deployment metrics: 1/1 ready
+  [32mPASS[0m  no pods in CrashLoopBackOff
+  [31mFAIL[0m  ServiceAccount debug-lab/reporter cannot list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m6 check(s) failing[0m, 5 passing. Keep digging — every failure is a symptom.
+
+$ kubectl -n debug-lab get svc backend -o yaml | grep -A6 "^  ports:"; kubectl -n debug-lab get endpoints backend
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8081
+  selector:
+    app: backend
+[33;1mWarning:[0m v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME      ENDPOINTS          AGE
+backend   10.244.0.27:8081   3m21s
+
+$ kubectl -n debug-lab logs deploy/gateway --tail=8
+Found 2 pods, using pod/gateway-69d86c676-9pdv7
+2026/10/10 10:01:56 eb-debug-app 2.0.0 starting: mode=gateway pod=gateway-69d86c676-9pdv7 listening on :8081 (image default is 8081; set PORT to override)
+
+$ kubectl -n debug-lab logs deploy/reporter --tail=8
+Found 2 pods, using pod/reporter-689754d5bb-jszh8
+2026/10/10 10:01:56 eb-debug-app 2.0.0 starting: mode=reporter pod=reporter-689754d5bb-jszh8 listening on :8081 (image default is 8081; set PORT to override)
+
+$ kubectl -n debug-lab describe pod -l app=gateway | grep -E "Readiness probe" | tail -2
+  Warning  Unhealthy  3s (x8 over 38s)  kubelet            Readiness probe failed: HTTP probe failed with statuscode: 503
+  Warning  Unhealthy  4s (x22 over 106s)  kubelet            Readiness probe failed: Get "http://10.244.0.23:8080/healthz": dial tcp 10.244.0.23:8080: connect: connection refused
+
+$ kubectl -n debug-lab run dbg --rm -i --restart=Never --image=busybox:1.36 --quiet --command -- sh -c "wget -S -O- -T 4 http://backend:8080/healthz; echo; wget -S -O- -T 4 http://gateway/healthz; echo; wget -S -O- -T 6 http://gateway/status; echo; wget -S -O- -T 4 http://reporter:8080/healthz; echo; wget -S -O- -T 6 http://reporter:8080/report" 2>&1
+wget: can't connect to remote host (10.96.135.216): Connection refused
+
+Connecting to gateway (10.96.135.216:80)
+wget: can't connect to remote host (10.96.135.216): Connection refused
+
+Connecting to reporter:8080 (10.96.255.243:8080)
+wget: can't connect to remote host (10.96.255.243): Connection refused
+
+Connecting to reporter:8080 (10.96.255.243:8080)
+wget: can't connect to remote host (10.96.255.243): Connection refused
+pod debug-lab/dbg terminated (Error)
+
+$ kubectl -n debug-lab run dbg --rm -i --restart=Never --image=busybox:1.36 --quiet --command -- sh -c "sleep 2; echo BACKEND; wget -S -O- -T 4 http://backend:8080/healthz; echo; echo GATEWAY-POD; wget -S -O- -T 6 http://\$(wget -q -O- http://backend:8080/healthz >/dev/null; echo gateway)/status" 2>&1
+BACKEND
+Connecting to backend:8080 (10.96.48.187:8080)
+{"status":"ok"}
+  HTTP/1.1 200 OK
+  Content-Type: application/json
+  Date: Sat, 10 Oct 2026 10:04:21 GMT
+  Content-Length: 16
+  Connection: close
+  
+writing to stdout
+-                    100% |********************************|    16  0:00:00 ETA
+written to stdout
+
+GATEWAY-POD
+Connecting to gateway (10.96.135.216:80)
+wget: can't connect to remote host (10.96.135.216): Connection refused
+pod debug-lab/dbg terminated (Error)
+
+$ GW=$(kubectl -n debug-lab get pod -l app=gateway -o jsonpath="{.items[-1:].status.podIP}"); kubectl -n debug-lab run dbg2 --rm -i --restart=Never --image=busybox:1.36 --quiet --command -- sh -c "sleep 2; wget -S -O- -T 6 http://$GW:8081/status; echo; wget -S -O- -T 6 http://$GW:8081/healthz" 2>&1
+Connecting to 10.244.0.23:8081 (10.244.0.23:8081)
+  HTTP/1.1 503 Service Unavailable
+wget: server returned error: HTTP/1.1 503 Service Unavailable
+
+Connecting to 10.244.0.23:8081 (10.244.0.23:8081)
+  HTTP/1.1 503 Service Unavailable
+wget: server returned error: HTTP/1.1 503 Service Unavailable
+pod debug-lab/dbg2 terminated (Error)
+
+$ GWPOD=$(kubectl -n debug-lab get pod -l app=gateway --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$GWPOD" 18081:8081 >/dev/null 2>&1 & PF=$!; sleep 2; echo "--- gateway /status"; curl -s -i http://localhost:18081/status; echo; echo "--- gateway /healthz"; curl -s http://localhost:18081/healthz; echo; kill $PF
+--- gateway /status
+HTTP/1.1 503 Service Unavailable
+[1mContent-Type[0m: application/json
+[1mDate[0m: Sat, 10 Oct 2026 10:04:43 GMT
+[1mContent-Length[0m: 310
+
+{"app":"gateway","backend":"error: GET http://backend.default.svc:8080/healthz: Get \"http://backend.default.svc:8080/healthz\": dial tcp: lookup backend.default.svc on 10.96.0.10:53: no such host","backend_url":"http://backend.default.svc:8080","pod":"gateway-5d9b6db7d8-npwl8","self":"ok","version":"2.0.0"}
+
+--- gateway /healthz
+{"backend":"GET http://backend.default.svc:8080/healthz: Get \"http://backend.default.svc:8080/healthz\": dial tcp: lookup backend.default.svc on 10.96.0.10:53: no such host","status":"unhealthy"}
+
+
+$ RPPOD=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$RPPOD" 18082:8081 >/dev/null 2>&1 & PF=$!; sleep 2; echo "--- reporter /report"; curl -s -i http://localhost:18082/report; echo; echo "--- reporter /healthz"; curl -s http://localhost:18082/healthz; echo; kill $PF
+--- reporter /report
+HTTP/1.1 503 Service Unavailable
+[1mContent-Type[0m: application/json
+[1mDate[0m: Sat, 10 Oct 2026 10:04:45 GMT
+[1mContent-Length[0m: 400
+
+{"error":"kubernetes API returned HTTP 403: {\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"pods is forbidden: User \\\"system:serviceaccount:debug-lab:reporter\\\" cannot list resource \\\"pods\\\" in API group \\\"\\\" in the namespace \\\"debug-lab\\\"\",\"reason\":\"Forbidden\",\"details\":{\"kind\":\"pods\"},\"code\":403}","status":"unhealthy"}
+
+--- reporter /healthz
+{"error":"kubernetes API returned HTTP 403: {\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"pods is forbidden: User \\\"system:serviceaccount:debug-lab:reporter\\\" cannot list resource \\\"pods\\\" in API group \\\"\\\" in the namespace \\\"debug-lab\\\"\",\"reason\":\"Forbidden\",\"details\":{\"kind\":\"pods\"},\"code\":403}","status":"unhealthy"}
+
+
+$ kubectl -n debug-lab get rolebinding reporter-read -o jsonpath="{.subjects}"; echo; kubectl auth can-i list pods -n debug-lab --as=system:serviceaccount:debug-lab:reporter; kubectl auth can-i list pods -n debug-lab --as=system:serviceaccount:debug-lab:default
+[{"kind":"ServiceAccount","name":"default","namespace":"debug-lab"}]
+no
+yes
+
+$ git -C .. diff lab/broken-chart/templates/rbac.yaml lab/broken-chart/values.yaml | grep -E "^[+-] " 
+-    name: default
++    name: {{ .Values.reporter.serviceAccountName }}
+-  # Every workload serves plain HTTP on this port.
+-  port: 8080
++  # Every workload serves plain HTTP on this port. The image listens on 8081 by default
++  # (confirmed from container logs); Services keep their public ports and target this.
++  port: 8081
++  # The image's USER is the name "nonroot" (uid 65532 in its /etc/passwd); kubelet needs a
++  # numeric uid to enforce runAsNonRoot.
++  runAsUser: 65532
+-    BACKEND_URL: "http://backend.default.svc:8080"
++    BACKEND_URL: "http://backend:8080"
++  # The worker writes its cache here; root fs stays read-only, so this is an emptyDir mount.
++  cacheDir: /var/cache/app
++  # Must stay under the namespace LimitRange max (cpu 1 / 512Mi) or pods are rejected at admission.
+-      cpu: "2"
++      cpu: "50m"
+-      cpu: "4"
++      cpu: "200m"
+
+$ ./scenario.sh up >/dev/null; sleep 30; kubectl -n debug-lab get pods
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-64b799c9c4-lkxvv    1/1     Running     0          2m32s
+gateway-69ccbcdc95-rtz68    1/1     Running     0          30s
+metrics-758cd6c755-fbrsd    1/1     Running     0          2m32s
+migrate-g2gpg               0/1     Completed   0          3m39s
+reporter-54677cbb78-frtgt   0/1     Running     0          2m32s
+reporter-689754d5bb-jszh8   0/1     Running     0          3m39s
+worker-89d8c47d7-vn2cx      1/1     Running     0          2m32s
+
+$ ./scenario.sh verify
+==> verifying goal state in namespace debug-lab
+  [32mPASS[0m  migrate Job completed
+  [32mPASS[0m  deployment backend: 1/1 ready
+  [32mPASS[0m  deployment gateway: 1/1 ready
+  [32mPASS[0m  deployment worker: 1/1 ready
+  [31mFAIL[0m  deployment reporter: 0/1 ready
+  [32mPASS[0m  deployment metrics: 1/1 ready
+  [32mPASS[0m  no pods in CrashLoopBackOff
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+
+$ kubectl -n debug-lab logs deploy/reporter --tail=5 --all-pods=true 2>/dev/null || kubectl -n debug-lab logs -l app=reporter --tail=5
+[pod/reporter-689754d5bb-jszh8/reporter] 2026/10/10 10:01:56 eb-debug-app 2.0.0 starting: mode=reporter pod=reporter-689754d5bb-jszh8 listening on :8081 (image default is 8081; set PORT to override)
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:05:34 GET /healthz -> 503 (from 10.244.0.1:42614)
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:05:39 GET /healthz -> 503 (from 10.244.0.1:42624)
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:05:44 pod list failed: parse pod list: unexpected end of JSON input
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:05:44 GET /healthz -> 503 (from 10.244.0.1:42554)
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:05:49 GET /healthz -> 503 (from 10.244.0.1:42560)
+
+$ RPPOD=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$RPPOD" 18082:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s -i http://localhost:18082/report; echo; kill $PF
+HTTP/1.1 503 Service Unavailable
+[1mContent-Type[0m: application/json
+[1mDate[0m: Sat, 10 Oct 2026 10:05:54 GMT
+[1mContent-Length[0m: 78
+
+{"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+
+$ kubectl -n debug-lab run dbg3 --rm -i --restart=Never --image=busybox:1.36 --quiet --command -- sh -c "sleep 2; wget -q -O- -T 6 http://gateway.debug-lab.svc/status; echo; wget -q -O- -T 4 http://backend:8080/healthz; echo" 2>&1
+{"app":"gateway","backend":"ok","backend_url":"http://backend:8080","pod":"gateway-69ccbcdc95-rtz68","self":"ok","version":"2.0.0"}
+
+{"status":"ok"}
+
+
+$ kubectl -n debug-lab logs -l app=reporter --tail=100 | grep -v "GET /healthz" | tail -15
+2026/10/10 10:04:34 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:44 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:45 GET /report -> 503 (from 127.0.0.1:36428)
+2026/10/10 10:04:54 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:05:04 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:05:14 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:05:24 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:05:34 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:05:44 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:05:54 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:05:54 GET /report -> 503 (from 127.0.0.1:37904)
+2026/10/10 10:06:02 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:06:12 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:06:22 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:01:56 eb-debug-app 2.0.0 starting: mode=reporter pod=reporter-689754d5bb-jszh8 listening on :8081 (image default is 8081; set PORT to override)
+
+$ kubectl -n debug-lab get pods -o json | wc -c; kubectl -n debug-lab get pods -o json | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d[\"items\"]), \"items\")"
+   85147
+7 items
+
+$ kubectl -n debug-lab describe pod -l app=reporter | grep -E "^Name:|Limits|Requests|cpu|memory|Environment:|NAMESPACE|APP_" | head -30
+Name:             reporter-54677cbb78-frtgt
+    Limits:
+      cpu:     200m
+      memory:  128Mi
+    Requests:
+      cpu:      50m
+      memory:   64Mi
+    Environment:
+      NAMESPACE:  debug-lab (v1:metadata.namespace)
+      APP_MODE:   reporter
+      APP_NAME:   reporter
+Name:             reporter-689754d5bb-jszh8
+    Limits:
+      cpu:     200m
+      memory:  128Mi
+    Requests:
+      cpu:      50m
+      memory:   64Mi
+    Environment:
+      NAMESPACE:  debug-lab (v1:metadata.namespace)
+      APP_MODE:   reporter
+      APP_NAME:   reporter
+
+$ RPPOD=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); echo "$RPPOD"; kubectl -n debug-lab debug -i "pod/$RPPOD" --image=curlimages/curl:8.10.1 --target=reporter -- sh -c "TOKEN=\$(cat /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/token); curl -sS -o /tmp/pods.json -w \"code=%{http_code} size=%{size_download} time=%{time_total}\n\" -H \"Authorization: Bearer \$TOKEN\" --cacert /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods; head -c 300 /tmp/pods.json; echo; echo ...; tail -c 120 /tmp/pods.json; echo"
+reporter-54677cbb78-frtgt
+Targeting container "reporter". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+--profile=legacy is deprecated and will be removed in the future. It is recommended to explicitly specify a profile, for example "--profile=general".
+Defaulting debug container name to debugger-xjkft.
+If you don't see a command prompt, try pressing enter.
+
+$ RPPOD=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab debug "pod/$RPPOD" --image=curlimages/curl:8.10.1 --target=reporter -c dbg -- sleep 600; sleep 8; kubectl -n debug-lab exec "$RPPOD" -c dbg -- sh -c "TOKEN=\$(cat /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/token); curl -sS -o /tmp/pods.json -w \"code=%{http_code} size=%{size_download} time=%{time_total}\n\" -H \"Authorization: Bearer \$TOKEN\" --cacert /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods; head -c 200 /tmp/pods.json; echo; echo ...; tail -c 80 /tmp/pods.json; echo; echo PROCS:; ls /proc | grep -E \"^[0-9]+$\" | head; cat /proc/1/cmdline | tr \"\\0\" \" \"; echo; cat /proc/1/environ | tr \"\\0\" \"\\n\" | grep -vi token"
+Targeting container "reporter". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+--profile=legacy is deprecated and will be removed in the future. It is recommended to explicitly specify a profile, for example "--profile=general".
+cat: can't open '/proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/token': Permission denied
+curl: (77) error setting certificate file: /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+code=000 size=0 time=0.002950
+head: /tmp/pods.json: No such file or directory
+
+...
+
+PROCS:
+tail: can't open '/tmp/pods.json': No such file or directory
+tail: no files
+1
+34
+44
+55
+56
+57
+/run/rosetta/rosetta /eb-debug-app /eb-debug-app 
+cat: can't open '/proc/1/environ': Permission denied
+command terminated with exit code 1
+
+$ RPPOD=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab debug "pod/$RPPOD" --profile=sysadmin --image=curlimages/curl:8.10.1 --target=reporter -c dbg2 -- sleep 600; sleep 8; kubectl -n debug-lab exec "$RPPOD" -c dbg2 -- sh -c "SA=/proc/1/root/var/run/secrets/kubernetes.io/serviceaccount; TOKEN=\$(cat \$SA/token); for i in 1 2 3; do curl -sS -o /tmp/pods.json -w \"code=%{http_code} size=%{size_download} time=%{time_total}\n\" -H \"Authorization: Bearer \$TOKEN\" --cacert \$SA/ca.crt https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods; done; tail -c 60 /tmp/pods.json; echo; echo ENV:; cat /proc/1/environ | tr \"\\0\" \"\\n\" | grep -v TOKEN; echo CGROUP:; cat /proc/1/cgroup; cat /sys/fs/cgroup\$(cut -d: -f3 /proc/1/cgroup)/cpu.stat 2>/dev/null || cat /proc/1/root/sys/fs/cgroup/cpu.stat 2>/dev/null"
+Targeting container "reporter". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+cat: can't open '/proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/token': Permission denied
+curl: (77) error setting certificate file: /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+code=000 size=0 time=0.002661
+curl: (77) error setting certificate file: /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+code=000 size=0 time=0.002197
+code=000 size=0 time=0.001898
+curl: (77) error setting certificate file: /proc/1/root/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+ENV:
+tail: can't open '/tmp/pods.json': No such file or directory
+tail: no files
+cat: can't open '/proc/1/environ': Permission denied
+CGROUP:
+0::/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-burstable.slice/kubelet-kubepods-burstable-pod56f354e9_3771_4cb6_8a58_b7cb8d7065d2.slice/cri-containerd-02dd98b0dfbd6c11f3a056f37268b925361544dc990d4f5465e329e31582e086.scope
+usage_usec 253094
+user_usec 188225
+system_usec 64868
+nr_periods 112
+nr_throttled 4
+throttled_usec 213442
+nr_bursts 0
+burst_usec 0
+
+$ kubectl get --raw "/api/v1/namespaces/debug-lab/pods" --as=system:serviceaccount:debug-lab:reporter | wc -c; kubectl get --raw "/api/v1/namespaces/debug-lab/pods?limit=500" --as=system:serviceaccount:debug-lab:reporter | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d[\"items\"]), [i[\"metadata\"][\"name\"] for i in d[\"items\"]])"
+   53939
+7 ['backend-64b799c9c4-lkxvv', 'gateway-69ccbcdc95-rtz68', 'metrics-758cd6c755-fbrsd', 'migrate-g2gpg', 'reporter-54677cbb78-frtgt', 'reporter-689754d5bb-jszh8', 'worker-89d8c47d7-vn2cx']
+
+$ kubectl -n debug-lab get pod -l app=reporter -o jsonpath="{range .items[*]}{.metadata.name} {.status.phase} ready={.status.containerStatuses[0].ready} restarts={.status.containerStatuses[0].restartCount}{\"\\n\"}{end}"
+reporter-54677cbb78-frtgt Running ready=false restarts=0
+reporter-689754d5bb-jszh8 Running ready=false restarts=0
+
+$ kubectl -n debug-lab logs reporter-54677cbb78-frtgt -c reporter | grep -v "GET /healthz" | head -12
+2026/10/10 10:03:04 eb-debug-app 2.0.0 starting: mode=reporter pod=reporter-54677cbb78-frtgt listening on :8081 (image default is 8081; set PORT to override)
+2026/10/10 10:03:09 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:03:19 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:03:29 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:03:39 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:03:49 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:03:59 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:09 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:19 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:29 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:34 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+2026/10/10 10:04:44 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"debug-lab\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+
+$ kubectl -n debug-lab rollout restart deploy/reporter; sleep 35; kubectl -n debug-lab get pods -l app=reporter; kubectl get --raw "/api/v1/namespaces/debug-lab/pods" | wc -c; kubectl -n debug-lab logs -l app=reporter --tail=3 --prefix | grep -v healthz
+deployment.apps/reporter restarted
+NAME                        READY   STATUS    RESTARTS   AGE
+reporter-54677cbb78-frtgt   0/1     Running   0          6m19s
+reporter-5b5887c64-7k9rz    0/1     Running   0          35s
+   54081
+Defaulted container "reporter" out of: reporter, debugger-xjkft (ephem), dbg (ephem), dbg2 (ephem)
+[pod/reporter-54677cbb78-frtgt/reporter] 2026/10/10 10:09:21 pod list failed: parse pod list: unexpected end of JSON input
+[pod/reporter-5b5887c64-7k9rz/reporter] 2026/10/10 10:09:13 pod list failed: parse pod list: unexpected end of JSON input
+
+$ echo "DIAGNOSTIC ONLY (live object, chart unchanged): raise reporter CPU limit to test the throttling hypothesis"; kubectl -n debug-lab set resources deploy/reporter --limits=cpu=1 --requests=cpu=250m; sleep 40; kubectl -n debug-lab get pods -l app=reporter; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz
+DIAGNOSTIC ONLY (live object, chart unchanged): raise reporter CPU limit to test the throttling hypothesis
+deployment.apps/reporter resource requirements updated
+NAME                        READY   STATUS    RESTARTS   AGE
+reporter-5b5887c64-7k9rz    0/1     Running   0          85s
+reporter-7cb67b6f77-8v4kw   0/1     Running   0          40s
+[pod/reporter-5b5887c64-7k9rz/reporter] 2026/10/10 10:10:08 pod list failed: parse pod list: unexpected end of JSON input
+[pod/reporter-7cb67b6f77-8v4kw/reporter] 2026/10/10 10:10:08 pod list failed: parse pod list: unexpected end of JSON input
+
+$ echo "DIAGNOSTIC ONLY: does the reporter need a writable /tmp? mount emptyDir on the live Deployment"; kubectl -n debug-lab patch deploy/reporter --type=json -p="[{\"op\":\"add\",\"path\":\"/spec/template/spec/volumes\",\"value\":[{\"name\":\"tmp\",\"emptyDir\":{}}]},{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/volumeMounts\",\"value\":[{\"name\":\"tmp\",\"mountPath\":\"/tmp\"}]}]"; sleep 40; kubectl -n debug-lab get pods -l app=reporter; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz
+DIAGNOSTIC ONLY: does the reporter need a writable /tmp? mount emptyDir on the live Deployment
+deployment.apps/reporter patched
+NAME                        READY   STATUS    RESTARTS   AGE
+reporter-7bdc6f98cf-jxv4z   0/1     Running   0          40s
+reporter-7cb67b6f77-8v4kw   0/1     Running   0          111s
+[pod/reporter-7bdc6f98cf-jxv4z/reporter] 2026/10/10 10:11:19 pod list failed: parse pod list: unexpected end of JSON input
+
+$ kubectl -n debug-lab run apicheck --rm -i --restart=Never --image=curlimages/curl:8.10.1 --quiet --overrides="{\"spec\":{\"serviceAccountName\":\"reporter\"}}" --command -- sh -c "sleep 2; SA=/var/run/secrets/kubernetes.io/serviceaccount; T=\$(cat \$SA/token); curl -sS -D - -o /tmp/p.json -w \"size=%{size_download} http=%{http_version}\n\" --cacert \$SA/ca.crt -H \"Authorization: Bearer \$T\" https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods; echo; echo HTTP1.1:; curl -sS --http1.1 -D - -o /dev/null -w \"size=%{size_download}\n\" --cacert \$SA/ca.crt -H \"Authorization: Bearer \$T\" https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods | grep -iE \"^HTTP|content-|transfer\"" 2>&1
+HTTP/2 200 
+audit-id: 57bce8ed-6756-4e29-9995-96f5291cb1de
+cache-control: no-cache, private
+content-type: application/json
+x-kubernetes-pf-flowschema-uid: 7f2361ff-3ef3-45d7-b733-a03a31c4a57c
+x-kubernetes-pf-prioritylevel-uid: fec61246-eacb-4e31-9299-a7f90143719d
+date: Sat, 10 Oct 2026 10:11:47 GMT
+
+size=119670 http=2
+
+HTTP1.1:
+HTTP/1.1 200 OK
+Content-Type: application/json
+Transfer-Encoding: chunked
+
+$ cid=$(docker create --platform linux/amd64 docker.io/ebinterview/eb-debug-app:1.0.1); docker cp "$cid":/eb-debug-app /tmp/eb-debug-app >/dev/null; docker rm -f "$cid" >/dev/null; ls -la /tmp/eb-debug-app; strings /tmp/eb-debug-app | grep -iE "parse pod list|pod list|unexpected end|limit|MAX_|_BYTES|CACHE_DIR|BACKEND_URL|NAMESPACE|APP_MODE|PORT|TOKEN|serviceaccount|kubernetes" | grep -vE "^(runtime|internal|crypto|vendor|net/|golang|go\.|type:|\.|github)" | sort -u | head -60
+-rwxr-xr-x@ 1 chetansiriguppa  wheel  5849240 Jul 31 14:11 /tmp/eb-debug-app
+hitReadLimit
+limiterEvent
+maxSizeLimit
+setReadLimit
+ *http.http2transportResponseBody
+ m=nil base rdtscppopcntnetdnsdomaingophertelnetlisten.onionndots:ip+netsocketsecretSTREETuint16uint32uint64structchan<-<-chanCommonAcceptServercmd/goavx512rdrandrdseedheaderAnswerLengthVERSIONversionbackenderror: Bearer /status/reportnil keytls3desderivedInitialEd25519MD5-RSAserial:number float32float64UpgradeTrailersocks5hHEADERSReferer flags= len=%d (conn) %v=%v,expiresrefererrefreshtrailerGODEBUGname %q:method:schemeupgrade:statushttp://chunkednosniffCreatedIM UsedCONNECT19531259765625abortedstoppedsignal TuesdayJanuaryOctoberSHA-224SHA-256SHA-384SHA-512forcegcallocmWcpuprofallocmRunknowngctraceIO waitrunningsyscallwaitingforevernetworkUNKNOWN:events, goid= s=nil
+ runqueue= stopwait= runqsize= gfreecnt= throwing= spinning=atomicand8float64nanfloat32nan ptrSize=  targetpc= until pc=unknown pcruntime: ggoroutine /etc/hostsgetsockoptnetlinkribsetsockoptunixpacket  netGo = base_nonceimpossiblePOSTALCODEParseAddr(invalid IPcomplex128t.Kind == Content-IdMessage-IdHTTP_PROXYhttp_proxyexecerrdothttp2debugcrypto/tlswinsymlinkavx512ifmaavx512vbmiavx512vnniavx512gfniavx512vaesavx512bf16ClassCSNETClassCHAOSAdditionalskipping: backend_urlBACKEND_URL.WithCancel.WithValue(tls10servertls: alert(local errorc e traffictraffic updApplicationinvalid oidMarshalJSONMarshalTextshort writehttp-serverhttp2serverhttp2clientENABLE_PUSHEND_HEADERS/index.html ErrCode=%v, settings:retry-afterstream_idleack_mysterybad_connectnil contextmoreGeneralTTL expiredEarly HintsBad RequestBad Gateway/dev/stdout/dev/stderrunreachable30517578125bad addressfile existsbroken pipebad messagealarm clockstack faulttime: file SHA-512/224SHA-512/256BLAKE2s-256BLAKE2b-256BLAKE2b-384BLAKE2b-512assistQueuenetpollInitreflectOffsglobalAllocmSpanManualstart traceclobberfreegccheckmarkscheddetailunspecifiedcgocall nil s.nelems=   of size  ) returned runtime: p  ms clock,  nBSSRoots=runtime: P  exp.) for minTrigger=GOMEMLIMIT=bad m value, elemsize= freeindex= span.list=, npages = , a123456=[ p->status= in status  idleprocs= gcwaiting= schedtick= timerslen= mallocing=bad timedivfloat64nan1float64nan2float64nan3float32nan2GOTRACEBACK) at entry+ (targetpc= , plugin: runtime: g : frame.sp=created by submissionsi/o timeoutpsk_id_hashbad argSizemethodargs(reflect.SetIn-Reply-ToReturn-Pathfinal tokenHTTPS_PROXYhttps_proxygocachehashgocachetestarchive/tarcrypto/x509archive/zipavx512vnniwavx512vbmi2ClassHESIODauthoritiesadditionalseb-debug-appContent-Typetlsunsafeekmclose notifyremote errorc hs traffics hs trafficc ap traffics ap trafficECDSA-SHA256ECDSA-SHA384ECDSA-SHA512SSL_CERT_DIRshort bufferhttpmuxgo121image/x-iconPUSH_PROMISECONTINUATIONCookie.Valuecontent-typemax-forwardshttp2debug=1http2debug=2out of rangepush_promisedata_on_idleheaders_evendup_trailers100-continuerecv_goaway_moreSpecificMulti-StatusNot ModifiedUnauthorizedI'm a teapotNot Extendedproxyconnectcan't happen152587890625762939453125illegal seekinvalid slothost is downchild exitedI/O possiblesweepWaiterstraceStringsspanSetSpinemspanSpecialtraceTypeTabgcBitsArenasmheapSpecialgcpacertraceharddecommitmadvdontneeddumping heapchan receivelfstack.push span.limit= span.state=bad flushGen MB stacks, worker mode  nDataRoots= nSpanRoots= wbuf1=<nil> wbuf2=<nil> gcscandone runtime: gp= found at *( s.elemsize= B (
+ s.sweepgen= allocCount timer_deletens} value: {}, want {r1= [recovered]bad recoveryGOTRACEBACK=bad g statusentersyscallwirep: p->m=) p->status=releasep: m= sysmonwait= preemptoff=cas64 failed m->gsignal=-byte limit
+ supportedSignatureAlgorithmsCert
+ the process needs a writable directory at %s (mount a volume there, or set CACHE_DIR)HTTP/1.1 431 Request Header Fields Too Large
+-thread limit
+, locked to threadserver misbehavinginvalid IP address/etc/nsswitch.confinvalid criteria: unsupported KDF idunsupported KEM idnon-minimal lengthtruncated sequencesequence truncatedcannot be negativeunable to parse IPreflect.Value.Elemreflect.Value.Typereflect: Zero(nil)bufio: buffer fulldecoding error: %vuse of closed fileRCodeServerFailurepod list failed: %vrevoked certificateexpired certificateunknown certificateunknown cipher typex509: malformed OIDx509: trailing datax509: unknown errorreflect.Value.IsNilreflect.Value.Floatafter array elementclient disconnectedhttp: Server closedINITIAL_WINDOW_SIZEINADEQUATE_SECURITYProxy-Authorizationframe_data_stream_0 (%d bytes omitted)content-dispositionif-unmodified-sinceproxy-authorizationerr must be non-nilTLS version too lowflow_on_data_lengthheaders_half_closedvalue for header %qhost/path missing /non-nil leaf fieldsinvalid header namenetwork unreachableSwitching ProtocolsPrecondition FailedMisdirected RequestService UnavailableConnection: close
+'*struct { F uintptr; R *main.reporter }
+"*http.transportReadFromServerError
+*http.h2Transport
+*http.http2Transport
+*http.http2transportTestHooks
+*http.Transport
+*http.transportRequest
+*http.unsupportedTEError
+*io.LimitedReader
+*json.UnsupportedTypeError
+*json.UnsupportedValueError
+*main.reporter
+*runtime.limiterEvent
+*syscall.Rlimit
+*tls.RenegotiationSupport
+/cpu/classes/idle:cpu-seconds/cpu/classes/user:cpu-seconds/gc/heap/allocs-by-size:bytes/gc/stack/starting-size:bytesgc done but gcphase != _GCoffruntime: p.gcMarkWorkerMode= scanobject of a noscan objectruntime: marking free object addspecial on invalid pointerruntime: summary max pages = runtime: levelShift[level] = doRecordGoroutineProfile gp1=runtime: eventfd failed with tried to unpin non-Go pointerruntime: sudog with non-nil centersyscall inconsistent bp entersyscall inconsistent sp gfput: bad status (not Gdead)LockOSThread nesting overflowsemacquire not on the G stackruntime: split stack overflowstring concatenation too longinvalid function symbol tabletrace: reading after shutdownruntime: traceback stuck. pc=tried to trace dead goroutineruntime: impossible type kindcrypto/aes: invalid key size crypto/des: invalid key size crypto/rc4: invalid key size mismatched local address typeunknown IP protocol specifiedmlkem768: invalid seed lengthinteger not minimally-encodedzero length OBJECT IDENTIFIER20060102150405.999999999Z0700pkcs12: odd-length BMP stringreflect: Key of non-map type  cannot be converted to type mime: invalid media parameterbufio.Scanner: token too longinvalid P256 element encodinghttps://kubernetes.default.svcprotocol version not supportedx509: invalid ECDSA parametersx509: SAN dNSName is malformedx509: malformed issuerUniqueIDlooking for beginning of valuein exponent of numeric literalstream error: stream ID %d; %vframe_settings_ack_with_lengthillegal window increment valueHEADERS frame with stream ID 0frame_continuation_zero_streamhttp2: decoded hpack field %+vrunning on the wrong goroutineaccess-control-request-headershttp2: panic serving %v: %v
+%s115792089210356248762697446949407573530086143415290314195533631308867097853951115792089210356248762697446949407573529996955224135760342422259061068512044369range function continued iteration after function for loop body returned falseno ServiceAccount token found at %s (is automountServiceAccountToken disabled?)tls: client certificate private key of type %T does not implement crypto.Signerhttp2: server closing client connection; error reading frame from client %s: %vcannot convert slice with length %y to array or pointer to array with length %xtls: either ServerName or InsecureSkipVerify must be specified in the tls.Configx509: invalid signature: parent certificate cannot sign this kind of certificatehttp: RoundTripper implementation (%T) returned a nil *Response with a nil errorbug: unexpected way for two patterns %s and %s to conflict: methods %s, paths %scrypto/rand: blocked for 60 seconds waiting to read random data from the kernel
+%sNon-Authoritative InformationProxy Authentication RequiredUnavailable For Legal Reasonsdup idle pconn %p in freelist45474735088646411895751953125too many open files in systemnumerical result out of rangemachine is not on the networkprotocol family not supportedoperation already in progressno XENIX semaphores availableTime.UnmarshalBinary: no dataSIGPIPE: write to broken pipeSIGPWR: power failure restartexecuting on Go runtime stackneed padding in bucket (elem)runtime: mmap: access denied
+%spersistConn was already in LRU227373675443232059478759765625sync: inconsistent mutex statesync: unlock of unlocked mutexinappropriate ioctl for devicesocket operation on non-socketprotocol wrong type for socketyear outside of range [0,9999]reflect: Elem of invalid type reflect: Len of non-array typecrypto/rsa: verification errorSIGUSR1: user-defined signal 1SIGUSR2: user-defined signal 2SIGVTALRM: virtual alarm clockSIGPROF: profiling alarm clock (types from different scopes)failed to get system page sizeassignment to entry in nil mapruntime: found in object at *( in prepareForSweep; sweepgen /cpu/classes/total:cpu-seconds/gc/cycles/automatic:gc-cycles/sched/pauses/total/gc:seconds/sync/mutex/wait/total:seconds/godebug/non-default-behavior/runtime: epollctl failed with panic called with nil argumentcheckdead: inconsistent countsrunqputslow: queue is not fullruntime: bad pointer in frame invalid pointer found on stack locals stack map entries for abi mismatch detected between runtime: impossible type kind unsafe.Slice: len out of rangeGODEBUG: unknown cpu feature "subtle.XORBytes: dst too shortasn1: cannot marshal nil valuetrailing garbage after addresscalled entry on non-entry nodeMapIter.Key called before Nextmissing validateFirstLine funcmime: duplicate parameter namechunked line ends with bare LFtransform: short source bufferFATAL: cannot listen on :%s: %vbad certificate status responseencrypted client hello requiredtls: unsupported public key: %TTLS: sequence number wraparoundCLIENT_HANDSHAKE_TRAFFIC_SECRETSERVER_HANDSHAKE_TRAFFIC_SECRETtls: failed to sign handshake: x509: malformed GeneralizedTimecrypto/ecdh: invalid public keyx509: invalid basic constraintsx509: malformed tbs certificatex509: malformed subjectUniqueIDx509: certificate is valid for json: invalid number literal %qin literal true (expecting 'r')in literal true (expecting 'u')in literal true (expecting 'e')in literal null (expecting 'u')in literal null (expecting 'l')fmt: unknown base; can't happenhttp2: connection error: %v: %vframe_headers_prio_weight_shortPRIORITY frame with stream ID 0too many authentication methodsRequested Range Not SatisfiableRequest Header Fields Too LargeNetwork Authentication Requiredtoo many transfer encodings: %qnet/http: TLS handshake timeout11368683772161602973937988281255684341886080801486968994140625.lib section in a.out corruptedcannot assign requested addressmalformed time zone informationslice bounds out of range [:%x]slice bounds out of range [%x:]SIGSEGV: segmentation violationcall from within the Go runtimeinternal error - misuse of itab) not in usable address space: runtime: cannot allocate memorycheckmark found unmarked object/memory/classes/heap/free:bytes/memory/classes/os-stacks:bytespacer: sweep done at heap size non in-use span in unswept listruntime.Pinner: argument is nilcasgstatus: bad incoming valuesresetspinning: not a spinning mruntime: profBuf already closedfatal: bad g in signal handler
+<*struct { F uintptr; X0 *http.Transport; X1 *http.wantConn }
+400 Bad Requestasn1: time did not serialize back to the original value and may be invalid: given %q, but serialized as %qhttp2: Transport: cannot retry err [%v] after Request.Body was written; define Request.GetBody to avoid this error39402006196394479212279040100143613805079739270465446667948293404245721771496870329047266088258938001861606973112319394020061963944792122790401001436138050797392704654466679469052796276593991132635693989563081522949135544336539426430051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f0000c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66011839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650FATAL: worker could not initialise its cache: %v 
+431 Request Header Fields Too Largecrypto/tls: ExportKeyingMaterial is unavailable when neither TLS 1.3 nor Extended Master Secret are negotiated; override with GODEBUG=tlsunsafeekm=168647976601306097149819007990813932172694353001433054093944634591855431833976560521225596406614545549772963113914808580371219879997166438125740282911150571516864797660130609714981900799081393217269435300143305409394463459185543183397655394245057746333217197532963996371363321113864768612440380340372808892707005449%[1]s and %[2]s both match some paths, like %[3]q.
+5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5runtime.SetFinalizer: first argument was allocated into an arenaattempted to trace stack of a goroutine this thread does not ownABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_tls: internal error: attempted to read record with QUIC transporttls: server selected an invalid version after a HelloRetryRequestx509: inner and outer signature algorithm identifiers don't matchx509: issuer name does not match subject from issuing certificatehttp: response.WriteHeader on hijacked connection from %s (%s:%d)net/http: Transport.DialTLS or DialTLSContext returned (nil, nil)user arena chunk size is not a multiple of the physical page sizeruntime.SetFinalizer: pointer not at beginning of allocated blockcryptobyte: pending child length %d exceeds %d-byte length prefixnistec: internal error: p224Table called with out-of-bounds valuenistec: internal error: p384Table called with out-of-bounds valuenistec: internal error: p521Table called with out-of-bounds valuetls: certificate private key (%T) does not implement crypto.Signertls: server sent an unexpected quic_transport_parameters extensionx509: certificate is not valid for any names, but wanted to match sender tried to send more than declared Content-Length of %d bytesruntime: unexpected error while checking standard file descriptor casGToWaitingForSuspendG with non-isWaitingForSuspendG wait reasontls: server sent certificate containing RSA key larger than %d bitstls: internal error: sending non-handshake message to QUIC transportpadding bytes must all be zeros unless AllowIllegalWrites is enabledhttp2: Transport conn %p received error from processing frame %v: %vhttp2: Transport received unsolicited DATA frame; closing connectionhttp: message cannot contain multiple Content-Length headers; got %q2695994666715063979466701508701963067355791626002630814351006629888126959946667150639794667015087019625940457807714424391721682722368061AllThreadsSyscall6 results differ between threads; runtime corruptedcrypto/hmac: hash generation function does not produce unique valuesgo package net: cgo resolver not supported; using Go's DNS resolver
+accessed data from freed user arena runtime: wrong goroutine in newstackruntime: invalid pc-encoded table f=crypto/cipher: input not full blockscrypto/sha1: invalid hash state sizecrypto/sha512: invalid hash functionIA5String contains invalid charactermethod ABI and value ABI don't alignmalformed MIME header initial line: edwards25519: invalid point encodingchacha20: wrong HChaCha20 nonce sizeinvalid pattern syntax (+ after -): cannot create context from nil parentcrypto: Size of unknown hash functiontls: unsupported certificate key (%T)tls: failed to verify certificate: %sx509: malformed extension value fieldx509: RSA key missing NULL parametersx509: invalid CRL distribution pointscrypto/ecdh: invalid private key sizebytes.Buffer: truncation out of rangeunexpected CONTINUATION for stream %dhttp2: Transport sending health checkhttp2: Transport health check successRoundTrip on uninitialized ClientConnhttp2: server encoding header %q = %qhttp: TLS handshake error from %s: %v2220446049250313080847263336181640625value too large for defined data typecannot exec a shared library directlyoperation not possible due to RF-killtimezone hour outside of range [0,23]crypto/rsa: public exponent too smallcrypto/rsa: public exponent too largecrypto/rsa: unsupported hash functionbigmod: internal error: shrinking natruntime: allocation size out of range) is smaller than minimum page size (/cpu/classes/gc/mark/idle:cpu-secondssetprofilebucket: profile already setfailed to reserve page summary memory_cgo_notify_runtime_init_done missingfatal: concurrent switchToCrashStack
+AddrPort
+b*struct { F uintptr; X0 *http.http2addConnCall; X1 *http.http2Transport; X2 string; X3 *tls.Conn }
+bindunixasn1int8uintchanfunccallkind != Fromxn--timecx16sse2bitsNameType0.0.0errorcachetoken<nil>tls: EarlyECDSAarrayfalseError&amp;&#34;&#39;https:***@Rangerangeclose:path%s %q%s=%sHTTP/Allow%s:%d:httpsocksFoundwritemkdirlstat1562578125MarchAprilmonthLocalSHA-1P-224P-256P-384P-521defersweeptestRtestWexecWhchanexecRschedsudogtimergscanmheaptracepanicsleep cnt=gcing MB,  got= ...
+chacha20: wrong key sizeinvalid pattern syntax: resource length too longunpacking Question.Classflate: maxBits too largestreamSafe was not reset2006-01-02T15:04:05Z07:00context deadline exceededtls: protocol is shutdownx509: invalid RDNSequencex509: invalid RSA modulusx509: malformed extensionx509: malformed signaturejson: Unexpected key typereflect.Value.OverflowIntjson: unsupported value: http: invalid cookie namehttp2: Request.URI is niltext/plain; charset=utf-8http2: Framer %p: read %vframe_data_pad_byte_shortframe_settings_has_streamframe_headers_zero_streamframe_headers_pad_too_bigframe_priority_bad_lengthhttp2: invalid header: %vstrict-transport-securityhttp2: unsupported schemeread_frame_unexpected_eof{...} wildcard not at endhttp: invalid Host headerHTTP/1.1 100 Continue
+embedded IPv4 address must replace the final 2 fields of the addressreflect: reflect.Value.UnsafePointer on an invalid notinheap pointertls: peer doesn't support the certificate custom signature algorithmstls: handshake message of length %d bytes exceeds maximum of %d byteshttp2: Transport closing idle conn %p (forSingleUse=%v, maxStream=%v)%s matches more methods than %s, but has a more specific path pattern%s matches fewer methods than %s, but has a more general path patternruntime.Pinner: found leaking pinned pointer; forgot to call Unpin()?too many hex fields to fit an embedded IPv4 at the end of the addressinternal/concurrent.HashMapTrie: ran out of hash bits while iteratinginternal/concurrent.HashMapTrie: ran out of hash bits while insertingedwards25519: internal error: setShortBytes called with a long stringx509: certificate relies on legacy Common Name field, use SANs insteadgot %s for stream %d; expected CONTINUATION following %s for stream %dbytes.Buffer: UnreadByte: previous operation was not a successful readtls: peer doesn't support any of the certificate's signature algorithmsx509: issuer has name constraints but leaf doesn't have a SAN extensionjson: invalid use of ,string struct tag, trying to unmarshal %q into %vinternal error: attempt to send frame on a half-closed-local stream: %vrange function recovered a loop body panic and did not resume panickingdynamic table size update MUST occur at the beginning of a header blocktoo many concurrent operations on a single file or socket (max 1048575)eb-debug-app %s: migration starting (app=%s, %ds of very important work)tls: server's certificate contains an unsupported type of public key: %Tcrypto/ecdh: internal error: nistec ScalarBaseMult returned the identitytls: received unexpected handshake message of type %T when waiting for %Ttls: internal error: handshake returned an error but is marked successfultls: certificate RSA key size too small for supported signature algorithmsmalformed response from server: malformed non-numeric status pseudo headernet/http: server replied with more than declared Content-Length; truncatedFATAL: unknown APP_MODE %q (want api, gateway, worker, reporter or migrate)tls: internal error: attempted to read record with pending application dataUnsolicited response received on idle HTTP channel starting with %q; err=%vtls: failed to send closeNotify alert (but connection was closed anyway): %wtls: server certificate contains incorrect key type for selected ciphersuiteHTTP/1.0 400 Bad Request
+encoding/json.(*UnsupportedTypeError).Error
+encoding/json.(*UnsupportedValueError).Error
+encoding/json.unsupportedTypeEncoder
+exportedMethods
+ExportedMethods
+exporterSecret
+exportKeyingMaterial
+ExportKeyingMaterial
+failed to construct HKDF label: %s/etc/ssl/certs/ca-certificates.crtadding nil Certificate to CertPoolx509: unknown public key algorithmx509: invalid certificate policies%s %q is excluded by constraint %qx509: Ed25519 verification failurex509: unhandled critical extensionin \u hexadecimal character escapetimeout waiting for client prefacehttp2: aborting request body writehttp: connection has been hijackedhttp: persistConn.readLoop exitinghttp: read on closed response bodystream error: stream ID %d; %v; %vframe_settings_window_size_too_bigframe_windowupdate_zero_inc_streamnewWriterAndRequestNoBody(%+v): %v%s matches the same requests as %shttp: invalid Content-Length of %qBaseContext returned a nil contextunsupported authentication method 3552713678800500929355621337890625too many references: cannot splice: day-of-year does not match monthcrypto/rsa: missing public modulusslice bounds out of range [:%x:%y]slice bounds out of range [%x:%y:]SIGURG: urgent condition on socketruntime: standard file descriptor out of memory allocating allArenas/memory/classes/heap/objects:bytesruntime.SetFinalizer: cannot pass too many pages allocated in chunk?mspan.ensureSwept: m is not lockedruntime: netpollBreak write failedforEachP: sched.safePointWait != 0schedule: spinning with local workentersyscallblock inconsistent bp entersyscallblock inconsistent sp runtime: g is running but p is notinvalid timer channel: no capacitycrypto/aes: invalid buffer overlapcrypto/des: invalid buffer overlapcrypto/rc4: invalid buffer overlapinvalid padding bits in BIT STRINGreflect: Field of non-struct type reflect: Field index out of boundsreflect: string index out of rangereflect.Value.Grow: slice overflowillegal base64 data at input byte GODEBUG sys/cpu: can not disable "chacha20: wrong HChaCha20 key sizekubernetes API returned HTTP %d: %sunsupported signature algorithm: %vtls: too many non-advancing recordstls: server selected an invalid PSKtls: invalid Kyber server key sharex509: malformed extension OID fieldx509: wrong Ed25519 public key sizex509: invalid authority info accesshttp: server closed idle connectionCONTINUATION frame with stream ID 0Prohibited TLS 1.2 Cipher Suite: %xhttp2: server: client %v said hellohttp2: server processing setting %vWrite called after Handler finished2006-01-02T15:04:05.999999999Z07:00os/signal: Notify using nil channel1776356839400250464677810668945312588817841970012523233890533447265625ryuFtoaFixed32 called with prec > 9network dropped connection on resettransport endpoint is not connectednon-positive interval for NewTickerbigmod: modulus is smaller than natpersistentalloc: align is too large/memory/classes/heap/released:bytesgreyobject: obj not pointer-alignedmismatched begin/end of activeSweepmheap.freeSpanLocked - invalid freefailed to get or create weak handleattempt to clear non-empty span setruntime: close polldesc w/o unblockruntime: inconsistent read deadlinefindrunnable: netpoll with spinningpidleput: P has non-empty run queuetraceback did not unwind completelymlkem768: invalid ciphertext lengthcrypto/md5: invalid hash state sizesuperfluous leading zeros in length'_' must separate successive digitsreflect.MakeSlice of non-slice typemime: bogus characters after %%: %qhpack: invalid Huffman-encoded datadynamic table size update too largefile type does not support deadlineP224 point is the point at infinityP256 point is the point at infinityP384 point is the point at infinityP521 point is the point at infinitychacha20: output smaller than inputtoo many Questions to pack (>65535)flate: corrupt input before offset transform: short destination bufferexpected an ECDSA public key, got %Tunsupported SSLv2 handshake receivedtls: server did not send a key sharex509: zero or negative DSA parameterx509: invalid CRL distribution pointx509: invalid subject key identifierx509: malformed algorithm identifierjson: encoding error for type %q: %qhttp: unexpected EOF reading trailer LastStreamID=%v ErrCode=%v Debug=%qhttp2: server rejecting conn: %v, %sHeader called after Handler finishedRoundTrip retrying after failure: %vJanFebMarAprMayJunJulAugSepOctNovDecno acceptable authentication methods444089209850062616169452667236328125ryuFtoaFixed64 called with prec > 180123456789abcdefghijklmnopqrstuvwxyzstrings.Builder.Grow: negative countstrings: Join output length overflowaccessing a corrupted shared libraryTime.UnmarshalBinary: invalid lengthreflect: NumField of non-struct typeno assembly implementation availablelfstack node allocated from the heap) is larger than maximum page size (key size not a multiple of key alignruntime: invalid typeBitsBulkBarrieruncaching span but s.allocCount == 0/memory/classes/metadata/other:bytes/sched/pauses/stopping/other:secondsuser arena span is on the wrong listruntime: marked free object in span runtime: unblock on closing polldescruntime: inconsistent write deadlineruntime: netpoll: eventfd ready for runtime: sudog with non-nil waitlinkruntime: mcall called on m->g0 stackfatal: recursive switchToCrashStack
+h2transport
+Handshake of type omitemptyimage/bmpimage/gifimage/pngvideo/avifont/woffParseUint[%v = %d]data_flowauthoritywebsocketnet/http.HTTP/1.1 HTTP/1.0 <a href="video/mp4succeededSee OtherUse ProxyForbiddenNot FoundToo EarlyTrailer: protocol nil errorcontinued244140625interruptbus errorWednesdaySeptemberlocaltimebad indirreflect: timerSendpollCacheprofBlockstackpoolhchanLeafwbufSpansGC (idle)mSpanDeadinittracescavtracepanicwaitchan sendpreemptedcoroutinesignal 32signal 33signal 34signal 35signal 36signal 37signal 38signal 39signal 40signal 41signal 42signal 43signal 44signal 45signal 46signal 47signal 48signal 49signal 50signal 51signal 52signal 53signal 54signal 55signal 56signal 57signal 58signal 59signal 60signal 61signal 62signal 63signal 64copystackLINUX_2.6interface -> node= ms cpu,  (forced) wbuf1.n= wbuf2.n= s.limit= s.state= B work ( B exp.)  marked   unmarked in use)
+http2Transport
+http2transportTestHooks
+initialReadLimitSize
+invalid empty Content-Lengthnet/http: invalid trailer %shttp: no Host in request URL18189894035458564758300781259094947017729282379150390625protocol driver not attachedfile descriptor in bad statedestination address requiredunsupported compression for errors: target cannot be nilSIGHUP: terminal line hangupSIGWINCH: window size changeGC mark assist wait for workcomparing uncomparable type runtime: bad lfnode address notewakeup - double wakeup (region exceeds uintptr rangeneed padding in bucket (key)/gc/heap/frees-by-size:bytes/gc/heap/tiny/allocs:objects/sched/goroutines:goroutinesgcBgMarkWorker: mode not setmspan.sweep: m is not lockedfound pointer to free objectmheap.freeSpanLocked - span fatal: morestack on gsignal
+io.(*LimitedReader).Read
+io.LimitReader
+IsExported
+L*struct { F uintptr; X0 *http.http2clientConnPool; X1 *http.http2Transport }
+
+$ ./scenario.sh up >/dev/null; sleep 45; kubectl -n debug-lab get pods; echo "raw pod list bytes:"; kubectl get --raw /api/v1/namespaces/debug-lab/pods | wc -c; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz
+level=WARN msg="upgrade failed" name=debug-lab error="conflict occurred while applying object debug-lab/reporter apps/v1, Kind=Deployment: Apply failed with 2 conflicts: conflicts with \"kubectl-set\" using apps/v1:\n- .spec.template.spec.containers[name=\"reporter\"].resources.limits.cpu\n- .spec.template.spec.containers[name=\"reporter\"].resources.requests.cpu"
+Error: UPGRADE FAILED: conflict occurred while applying object debug-lab/reporter apps/v1, Kind=Deployment: Apply failed with 2 conflicts: conflicts with "kubectl-set" using apps/v1:
+- .spec.template.spec.containers[name="reporter"].resources.limits.cpu
+- .spec.template.spec.containers[name="reporter"].resources.requests.cpu
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-64b799c9c4-lkxvv    1/1     Running     0          10m
+gateway-69ccbcdc95-rtz68    1/1     Running     0          8m36s
+metrics-758cd6c755-fbrsd    1/1     Running     0          10m
+migrate-g2gpg               0/1     Completed   0          11m
+reporter-7bdc6f98cf-jxv4z   0/1     Running     0          2m58s
+reporter-7cb67b6f77-8v4kw   0/1     Running     0          4m9s
+worker-89d8c47d7-vn2cx      1/1     Running     0          10m
+raw pod list bytes:
+   50807
+
+$ echo "cleanup: my kubectl set/patch diagnostics took field ownership; re-sync live state to the chart"; helm upgrade --install debug-lab ./broken-chart -n debug-lab --force-conflicts >/dev/null && sleep 45 && kubectl -n debug-lab get pods && kubectl -n debug-lab get deploy reporter -o jsonpath="{.spec.template.spec.containers[0].resources} volumes={.spec.template.spec.volumes}"; echo; echo "raw pod list bytes:"; kubectl get --raw /api/v1/namespaces/debug-lab/pods | wc -c; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz
+cleanup: my kubectl set/patch diagnostics took field ownership; re-sync live state to the chart
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-64b799c9c4-lkxvv    1/1     Running     0          11m
+gateway-69ccbcdc95-rtz68    1/1     Running     0          9m32s
+metrics-758cd6c755-fbrsd    1/1     Running     0          11m
+migrate-g2gpg               0/1     Completed   0          12m
+reporter-797b466dd6-zq2zk   0/1     Running     0          45s
+reporter-7bdc6f98cf-jxv4z   0/1     Running     0          3m54s
+worker-89d8c47d7-vn2cx      1/1     Running     0          11m
+{"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"50m","memory":"64Mi"}} volumes=[{"emptyDir":{},"name":"tmp"}]
+raw pod list bytes:
+   51082
+[pod/reporter-7bdc6f98cf-jxv4z/reporter] 2026/10/10 10:14:33 pod list failed: parse pod list: unexpected end of JSON input
+
+$ echo "DIAGNOSTIC: point the reporter at an (almost) empty namespace to separate payload-size from protocol issues"; kubectl -n default get pods 2>&1 | head -3; kubectl -n debug-lab set env deploy/reporter NAMESPACE=default; sleep 40; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz; RP=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$RP" 18082:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s http://localhost:18082/report; echo; kill $PF
+DIAGNOSTIC: point the reporter at an (almost) empty namespace to separate payload-size from protocol issues
+No resources found in default namespace.
+deployment.apps/reporter env updated
+[pod/reporter-797b466dd6-zq2zk/reporter] 2026/10/10 10:15:55 pod list failed: parse pod list: unexpected end of JSON input
+[pod/reporter-bc7f5ddff-59x66/reporter] 2026/10/10 10:15:56 pod list failed: kubernetes API returned HTTP 403: {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"pods is forbidden: User \"system:serviceaccount:debug-lab:reporter\" cannot list resource \"pods\" in API group \"\" in the namespace \"default\"","reason":"Forbidden","details":{"kind":"pods"},"code":403}
+{"error":"kubernetes API returned HTTP 403: {\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"pods is forbidden: User \\\"system:serviceaccount:debug-lab:reporter\\\" cannot list resource \\\"pods\\\" in API group \\\"\\\" in the namespace \\\"default\\\"\",\"reason\":\"Forbidden\",\"details\":{\"kind\":\"pods\"},\"code\":403}","status":"unhealthy"}
+
+
+$ kubectl -n default create rolebinding tmp-reporter-diag --clusterrole=view --serviceaccount=debug-lab:reporter; sleep 25; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz; RP=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$RP" 18082:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s http://localhost:18082/report; echo; kill $PF; kubectl -n default delete rolebinding tmp-reporter-diag
+rolebinding.rbac.authorization.k8s.io/tmp-reporter-diag created
+{"namespace":"default","pod":"reporter-bc7f5ddff-59x66","pods":0}
+
+rolebinding.rbac.authorization.k8s.io "tmp-reporter-diag" deleted
+kubectl -n default create rolebinding tmp-reporter-diag --clusterrole=view --serviceaccount=debug-lab:reporter; sleep 25; kubectl -n debug-lab logs -l app=reporter --tail=2 --prefix | grep -v healthz; RP=$(kubectl -n debug-lab get pod -l app=reporter --sort-by=.metadata.creationTimestamp -o jsonpath="{.items[-1].metadata.name}"); kubectl -n debug-lab port-forward "pod/$RP" 18082:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s http://localhost:18082/report; echo; kill $PF; kubectl -n default delete rolebinding tmp-reporter-diag: line 1: 54473 Terminated: 15          kubectl -n debug-lab port-forward "pod/$RP" 18082:8081 > /dev/null 2>&1
+
+$ echo "cleanup diagnostics: re-sync reporter to chart, drop leftover tmp volume"; helm upgrade --install debug-lab ./broken-chart -n debug-lab --force-conflicts >/dev/null; kubectl -n debug-lab patch deploy/reporter --type=json -p="[{\"op\":\"remove\",\"path\":\"/spec/template/spec/volumes\"},{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/volumeMounts\"}]" ; sleep 50; kubectl -n debug-lab get pods; for p in $(kubectl -n debug-lab get pods -o name); do printf "%8d %s\n" $(kubectl get --raw /api/v1/namespaces/debug-lab/${p/pod\//pods/} | wc -c) "$p"; done; echo total: $(kubectl get --raw /api/v1/namespaces/debug-lab/pods | wc -c); kubectl -n debug-lab logs -l app=reporter --tail=1 --prefix | grep -v healthz
+cleanup diagnostics: re-sync reporter to chart, drop leftover tmp volume
+level=WARN msg="upgrade failed" name=debug-lab error="server-side apply failed for object debug-lab/reporter apps/v1, Kind=Deployment: Deployment.apps \"reporter\" is invalid: spec.template.spec.containers[0].env[0].valueFrom: Invalid value: \"\": may not be specified when `value` is not empty"
+Error: UPGRADE FAILED: server-side apply failed for object debug-lab/reporter apps/v1, Kind=Deployment: Deployment.apps "reporter" is invalid: spec.template.spec.containers[0].env[0].valueFrom: Invalid value: "": may not be specified when `value` is not empty
+deployment.apps/reporter patched
+NAME                       READY   STATUS      RESTARTS   AGE
+backend-64b799c9c4-lkxvv   1/1     Running     0          14m
+gateway-69ccbcdc95-rtz68   1/1     Running     0          12m
+metrics-758cd6c755-fbrsd   1/1     Running     0          14m
+migrate-g2gpg              0/1     Completed   0          15m
+reporter-bc7f5ddff-59x66   0/1     Running     0          2m26s
+reporter-df54668d5-b6djg   0/1     Running     0          50s
+worker-89d8c47d7-vn2cx     1/1     Running     0          14m
+    7025 pod/backend-64b799c9c4-lkxvv
+    7147 pod/gateway-69ccbcdc95-rtz68
+    7025 pod/metrics-758cd6c755-fbrsd
+    6848 pod/migrate-g2gpg
+    7834 pod/reporter-bc7f5ddff-59x66
+    7563 pod/reporter-df54668d5-b6djg
+    7325 pod/worker-89d8c47d7-vn2cx
+total: 50635
+
+$ kubectl -n debug-lab set env deploy/reporter NAMESPACE- >/dev/null; helm upgrade --install debug-lab ./broken-chart -n debug-lab --force-conflicts >/dev/null && echo "reporter re-synced to chart"; kubectl get --raw /api/v1/namespaces/debug-lab/pods/backend-64b799c9c4-lkxvv | python3 -c "
+import json,sys
+p=json.load(sys.stdin)
+tot=len(json.dumps(p,separators=(\",\",\":\")))
+mf=len(json.dumps(p[\"metadata\"].get(\"managedFields\",[]),separators=(\",\",\":\")))
+st=len(json.dumps(p.get(\"status\",{}),separators=(\",\",\":\")))
+sp=len(json.dumps(p.get(\"spec\",{}),separators=(\",\",\":\")))
+print(f\"total={tot} managedFields={mf} spec={sp} status={st}\")
+print(\"spec keys:\", sorted(p[\"spec\"].keys()))
+print(\"env:\", [e[\"name\"] for e in p[\"spec\"][\"containers\"][0][\"env\"]])
+print(\"volumes:\", [v[\"name\"] for v in p[\"spec\"].get(\"volumes\",[])])
+"
+reporter re-synced to chart
+total=7024 managedFields=2719 spec=1829 status=1816
+spec keys: ['containers', 'dnsPolicy', 'enableServiceLinks', 'nodeName', 'preemptionPolicy', 'priority', 'restartPolicy', 'schedulerName', 'securityContext', 'serviceAccount', 'serviceAccountName', 'terminationGracePeriodSeconds', 'tolerations', 'volumes']
+env: ['APP_MODE', 'APP_NAME', 'VERSION']
+volumes: ['kube-api-access-lfj8g']
+
+$ echo "DIAGNOSTIC: throwaway reporter pods pointed at namespaces of different sizes (temporary view bindings, removed afterwards)"; for ns in demo ingress-nginx kube-system; do kubectl -n $ns create rolebinding tmp-reporter-diag --clusterrole=view --serviceaccount=debug-lab:reporter >/dev/null; n=$(kubectl -n $ns get pods --no-headers | wc -l | tr -d " "); sz=$(kubectl get --raw /api/v1/namespaces/$ns/pods | wc -c | tr -d " "); kubectl -n debug-lab run rep-diag-$ns --image=docker.io/ebinterview/eb-debug-app:1.0.1 --restart=Never --overrides="{\"spec\":{\"serviceAccountName\":\"reporter\",\"securityContext\":{\"runAsUser\":65532}}}" --env=APP_MODE=reporter --env=APP_NAME=rep --env=VERSION=0 --env=NAMESPACE=$ns >/dev/null; kubectl -n debug-lab wait --for=condition=Ready=false pod/rep-diag-$ns --timeout=5s >/dev/null 2>&1; sleep 15; kubectl -n debug-lab port-forward pod/rep-diag-$ns 18090:8081 >/dev/null 2>&1 & PF=$!; sleep 2; printf "%-14s pods=%-3s listBytes=%-7s report=" $ns $n $sz; curl -s http://localhost:18090/report | cut -c1-120; echo; kill $PF 2>/dev/null; wait $PF 2>/dev/null; kubectl -n debug-lab delete pod rep-diag-$ns --now >/dev/null; kubectl -n $ns delete rolebinding tmp-reporter-diag >/dev/null; done
+DIAGNOSTIC: throwaway reporter pods pointed at namespaces of different sizes (temporary view bindings, removed afterwards)
+demo           pods=2   listBytes=15255   report={"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+ingress-nginx  pods=3   listBytes=24126   report={"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+kube-system    pods=8   listBytes=68388   report={"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+
+$ for ns in default demo; do echo "== $ns"; kubectl get --raw /api/v1/namespaces/$ns/pods -v=8 2>&1 | grep -iE "Response Status|Content-Length|Transfer-Encoding|Content-Type" | sed "s/^.*] //" ; done; kubectl version 2>/dev/null | grep Server; kubectl get --raw /api/v1/namespaces/default/pods | wc -c
+== default
+Response Status: 200 OK in 12 milliseconds
+    Content-Length: 86
+    Content-Type: application/json
+== demo
+Response Status: 200 OK in 11 milliseconds
+    Content-Type: application/json
+Server Version: v1.37.0
+      86
+
+$ echo "DIAGNOSTIC: does forcing HTTP/1.1 (GODEBUG=http2client=0) change the reporter result?"; kubectl -n demo create rolebinding tmp-reporter-diag --clusterrole=view --serviceaccount=debug-lab:reporter >/dev/null; kubectl -n debug-lab run rep-diag-h1 --image=docker.io/ebinterview/eb-debug-app:1.0.1 --restart=Never --overrides="{\"spec\":{\"serviceAccountName\":\"reporter\",\"securityContext\":{\"runAsUser\":65532}}}" --env=APP_MODE=reporter --env=APP_NAME=rep --env=VERSION=0 --env=NAMESPACE=demo --env=GODEBUG=http2client=0 >/dev/null; sleep 20; kubectl -n debug-lab port-forward pod/rep-diag-h1 18090:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s http://localhost:18090/report | cut -c1-160; echo; kill $PF 2>/dev/null; wait $PF 2>/dev/null; kubectl -n debug-lab delete pod rep-diag-h1 --now >/dev/null; kubectl -n demo delete rolebinding tmp-reporter-diag >/dev/null
+DIAGNOSTIC: does forcing HTTP/1.1 (GODEBUG=http2client=0) change the reporter result?
+{"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+
+$ echo "Hypothesis: the reporter relies on Content-Length; k8s>=1.34 always streams list responses (StreamingCollectionEncodingToJSON is GA/locked since 1.34). Checking for a pre-1.34 kind node image."; docker manifest inspect kindest/node:v1.32.5 >/dev/null 2>&1 && echo "kindest/node:v1.32.5 available" ; docker manifest inspect kindest/node:v1.33.4 >/dev/null 2>&1 && echo "kindest/node:v1.33.4 available"; ./scenario.sh verify 2>&1 | tail -13
+Hypothesis: the reporter relies on Content-Length; k8s>=1.34 always streams list responses (StreamingCollectionEncodingToJSON is GA/locked since 1.34). Checking for a pre-1.34 kind node image.
+kindest/node:v1.32.5 available
+kindest/node:v1.33.4 available
+  [32mPASS[0m  migrate Job completed
+  [32mPASS[0m  deployment backend: 1/1 ready
+  [32mPASS[0m  deployment gateway: 1/1 ready
+  [32mPASS[0m  deployment worker: 1/1 ready
+  [31mFAIL[0m  deployment reporter: 0/1 ready
+  [32mPASS[0m  deployment metrics: 1/1 ready
+  [32mPASS[0m  no pods in CrashLoopBackOff
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+
+$ echo "Recreating the kind cluster on a pinned 1.32 node image (setup.sh now pins KIND_NODE_IMAGE)"; kind delete cluster --name demo; cd .. && ./setup.sh > /tmp/setup-k132-run1.log 2>&1; echo "setup run1 exit=$?"; grep -E "Service reachable|\"app\"|Error|ERROR" /tmp/setup-k132-run1.log; kubectl version 2>/dev/null | grep Server; cd lab
+Recreating the kind cluster on a pinned 1.32 node image (setup.sh now pins KIND_NODE_IMAGE)
+Deleting cluster "demo" ...
+Deleted nodes: ["demo-control-plane"]
+setup run1 exit=0
+{"app": "demo", "version": "1.0.0", "pod": "demo-demo-service-7fcb767c44-hmxpk"}
+Service reachable through the Ingress.
+Server Version: v1.32.5
+
+$ ./scenario.sh up 2>&1 | grep -vE "^$" | head -12; echo "--- second up (the first apply races: limits.yaml is applied before namespace.yaml exists)"; ./scenario.sh up 2>&1 | head -3; sleep 45; kubectl -n debug-lab get pods
+==> applying cluster environment (cluster-state/)
+namespace/debug-lab created
+Error from server (NotFound): error when creating "cluster-state/limits.yaml": namespaces "debug-lab" not found
+==> installing the broken chart
+Release "debug-lab" does not exist. Installing it now.
+NAME: debug-lab
+LAST DEPLOYED: Sat Oct 10 15:58:35 2026
+NAMESPACE: debug-lab
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+--- second up (the first apply races: limits.yaml is applied before namespace.yaml exists)
+==> applying cluster environment (cluster-state/)
+limitrange/debug-lab-guardrails created
+namespace/debug-lab unchanged
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-7fcc9b57b-gbz9r     1/1     Running     0          45s
+gateway-575d7d78d5-jsdkz    1/1     Running     0          45s
+metrics-65fc77f7bf-pdt9b    1/1     Running     0          45s
+migrate-jbgpg               0/1     Completed   0          45s
+reporter-5f9f7d8bdc-w9f4z   0/1     Running     0          45s
+worker-6d8d8979fc-sm4ws     1/1     Running     0          45s
+
+$ ./scenario.sh verify
+==> verifying goal state in namespace debug-lab
+  [32mPASS[0m  migrate Job completed
+  [32mPASS[0m  deployment backend: 1/1 ready
+  [32mPASS[0m  deployment gateway: 1/1 ready
+  [32mPASS[0m  deployment worker: 1/1 ready
+  [31mFAIL[0m  deployment reporter: 0/1 ready
+  [32mPASS[0m  deployment metrics: 1/1 ready
+  [32mPASS[0m  no pods in CrashLoopBackOff
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+
+$ kubectl -n debug-lab logs -l app=reporter --tail=3 | grep -v healthz; kubectl get --raw /api/v1/namespaces/debug-lab/pods -v=8 2>&1 | grep -iE "Content-Length|Transfer|Response Status" | sed "s/^.*] //"; kubectl get --raw /api/v1/namespaces/debug-lab/pods | wc -c
+2026/10/10 10:29:29 pod list failed: parse pod list: unexpected end of JSON input
+Response Status: 200 OK in 8 milliseconds
+   37387
+
+$ echo "Dead end: 1.32 behaves the same. New angle: capture the exact request the reporter sends by pointing a throwaway reporter at an echo server."; kubectl -n debug-lab run echo --image=mendhak/http-https-echo:35 --restart=Never --port=8443 >/dev/null; kubectl -n debug-lab wait --for=condition=Ready pod/echo --timeout=90s >/dev/null; EIP=$(kubectl -n debug-lab get pod echo -o jsonpath="{.status.podIP}"); kubectl -n debug-lab run rep-diag-echo --image=docker.io/ebinterview/eb-debug-app:1.0.1 --restart=Never --overrides="{\"spec\":{\"serviceAccountName\":\"reporter\",\"securityContext\":{\"runAsUser\":65532}}}" --env=APP_MODE=reporter --env=APP_NAME=rep --env=VERSION=0 --env=NAMESPACE=debug-lab --env=KUBERNETES_SERVICE_HOST=$EIP --env=KUBERNETES_SERVICE_PORT=8443 >/dev/null; sleep 20; echo "--- reporter log:"; kubectl -n debug-lab logs rep-diag-echo | grep -v healthz | tail -3; echo "--- echo server saw:"; kubectl -n debug-lab logs echo | grep -vE "^\s*\"(authorization|x-|user-agent)" | head -40
+Dead end: 1.32 behaves the same. New angle: capture the exact request the reporter sends by pointing a throwaway reporter at an echo server.
+--- reporter log:
+2026/10/10 10:30:51 eb-debug-app 0 starting: mode=reporter pod=rep-diag-echo listening on :8081 (image default is 8081; set PORT to override)
+--- echo server saw:
+Listening on ports 8080 for http, and 8443 for https.
+
+$ sleep 15; kubectl -n debug-lab logs rep-diag-echo | grep -v healthz | tail -4; echo "--- echo:"; kubectl -n debug-lab logs echo | tail -30
+2026/10/10 10:30:51 eb-debug-app 0 starting: mode=reporter pod=rep-diag-echo listening on :8081 (image default is 8081; set PORT to override)
+--- echo:
+Listening on ports 8080 for http, and 8443 for https.
+
+$ kubectl -n debug-lab port-forward pod/rep-diag-echo 18090:8081 >/dev/null 2>&1 & PF=$!; sleep 2; curl -s --max-time 20 http://localhost:18090/report | cut -c1-300; echo; kill $PF; wait $PF 2>/dev/null; echo "--- echo server saw:"; kubectl -n debug-lab logs echo | grep -vE "authorization|user-agent" | tail -40
+{"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+--- echo server saw:
+Listening on ports 8080 for http, and 8443 for https.
+
+$ echo "Does the reporter swallow transport errors? Point it at a non-routable host."; kubectl -n debug-lab delete pod rep-diag-echo --now >/dev/null; kubectl -n debug-lab run rep-diag-nohost --image=docker.io/ebinterview/eb-debug-app:1.0.1 --restart=Never --overrides="{\"spec\":{\"serviceAccountName\":\"reporter\",\"securityContext\":{\"runAsUser\":65532}}}" --env=APP_MODE=reporter --env=APP_NAME=rep --env=VERSION=0 --env=NAMESPACE=debug-lab --env=KUBERNETES_SERVICE_HOST=10.255.255.1 --env=KUBERNETES_SERVICE_PORT=443 >/dev/null; sleep 12; kubectl -n debug-lab port-forward pod/rep-diag-nohost 18090:8081 >/dev/null 2>&1 & PF=$!; sleep 2; time curl -s --max-time 30 http://localhost:18090/report | cut -c1-300; echo; kill $PF; wait $PF 2>/dev/null; kubectl -n debug-lab logs rep-diag-nohost | grep -v healthz | tail -3; kubectl -n debug-lab delete pod rep-diag-nohost --now >/dev/null
+Does the reporter swallow transport errors? Point it at a non-routable host.
+{"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+real	0m0.403s
+user	0m0.009s
+sys	0m0.016s
+
+2026/10/10 10:32:53 eb-debug-app 0 starting: mode=reporter pod=rep-diag-nohost listening on :8081 (image default is 8081; set PORT to override)
+2026/10/10 10:33:06 pod list failed: parse pod list: unexpected end of JSON input
+2026/10/10 10:33:06 GET /report -> 503 (from 127.0.0.1:53528)
+
+$ echo "Isolating the app from Kubernetes: run the reporter container against a fake API server on the host with controlled response size/framing"; cd /tmp/fakeapi && openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -subj "/CN=kubernetes.default.svc" -addext "subjectAltName=DNS:kubernetes.default.svc,DNS:kubernetes,IP:127.0.0.1" >/dev/null 2>&1 && mkdir -p sa && cp cert.pem sa/ca.crt && echo faketoken > sa/token && echo debug-lab > sa/namespace && ls sa; cd - >/dev/null
+Isolating the app from Kubernetes: run the reporter container against a fake API server on the host with controlled response size/framing
+ca.crt		namespace	token
+
+$ chmod +x /tmp/fakeapi/run.sh; /tmp/fakeapi/run.sh 0 0 0
+PODS=0   PAD=0      CHUNKED=0 -> {"error":"GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get \"https://kuberne
+
+    app: 2026/10/10 10:34:26 pod list failed: GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get "https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100": tls: failed to verify certificate: x509: certificate is valid for ingress.local, not kubernetes.default.svc
+    app: 2026/10/10 10:34:26 GET /report -> 503 (from 192.168.65.1:48056)
+
+$ /tmp/fakeapi/run.sh 0 0 0; /tmp/fakeapi/run.sh 2 6000 0; /tmp/fakeapi/run.sh 2 6000 1; /tmp/fakeapi/run.sh 1 200 0
+PODS=0   PAD=0      CHUNKED=0 -> {"error":"GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get \"https://kuberne
+
+    app: 2026/10/10 10:34:43 pod list failed: GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get "https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100": tls: failed to verify certificate: x509: certificate is valid for ingress.local, not kubernetes.default.svc
+    app: 2026/10/10 10:34:43 GET /report -> 503 (from 192.168.65.1:53596)
+PODS=2   PAD=6000   CHUNKED=0 -> {"error":"GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get \"https://kuberne
+
+    app: 2026/10/10 10:34:48 pod list failed: GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get "https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100": tls: failed to verify certificate: x509: certificate is valid for ingress.local, not kubernetes.default.svc
+    app: 2026/10/10 10:34:48 GET /report -> 503 (from 192.168.65.1:30849)
+PODS=2   PAD=6000   CHUNKED=1 -> {"error":"GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get \"https://kuberne
+
+    app: 2026/10/10 10:34:53 pod list failed: GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get "https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100": tls: failed to verify certificate: x509: certificate is valid for ingress.local, not kubernetes.default.svc
+    app: 2026/10/10 10:34:53 GET /report -> 503 (from 192.168.65.1:49686)
+PODS=1   PAD=200    CHUNKED=0 -> {"error":"GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get \"https://kuberne
+
+    app: 2026/10/10 10:34:58 pod list failed: GET https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100: Get "https://kubernetes.default.svc/api/v1/namespaces/debug-lab/pods?limit=100": tls: failed to verify certificate: x509: certificate is valid for ingress.local, not kubernetes.default.svc
+    app: 2026/10/10 10:34:58 GET /report -> 503 (from 192.168.65.1:41939)
+
+$ /tmp/fakeapi/run.sh 0 0 0
+Unable to find image 'python:3.12-slim' locally
+3.12-slim: Pulling from library/python
+
+[1A[2K6e2fcafe72a4: Pulling fs layer [1B
+[1A[2K387b25ff7b94: Pulling fs layer [1B
+[1A[2K4dbdca1a513d: Pulling fs layer [1B
+[1A[2Kbbeda6b4abb7: Pulling fs layer [1B[1A[2Kbbeda6b4abb7: Downloading  1.049MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  1.049MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  1.049MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  2.097MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  2.097MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  2.097MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  2.097MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  3.146MB/30.2MB[1B[4A[2K6e2fcafe72a4: Downloading     249B/249B[4B[1A[2Kbbeda6b4abb7: Downloading  3.146MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  3.146MB/30.2MB[1B[4A[2K6e2fcafe72a4: Download complete [4B[1A[2Kbbeda6b4abb7: Downloading  4.194MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  4.194MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  4.194MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  4.194MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading   4.35MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  5.243MB/30.2MB[1B[3A[2K387b25ff7b94: Downloading  1.049MB/1.275MB[3B[1A[2Kbbeda6b4abb7: Downloading  5.243MB/30.2MB[1B[3A[2K387b25ff7b94: Download complete [3B[1A[2Kbbeda6b4abb7: Downloading  5.243MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  5.243MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  5.243MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  6.291MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  6.291MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  6.291MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  6.291MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading   7.34MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading   7.34MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading   7.34MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading   7.34MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  8.389MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  1.049MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  8.389MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  8.389MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  8.389MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  8.389MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  9.437MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  9.437MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  9.437MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  9.437MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  2.097MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  10.49MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  10.49MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  10.49MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  10.49MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  10.49MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  11.53MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  3.146MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  11.53MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  4.194MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  11.53MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  4.194MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  11.53MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  4.194MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  11.53MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  4.194MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  4.194MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  5.243MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  5.243MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  5.243MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  5.243MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  12.58MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  5.243MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  13.63MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  6.291MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  14.68MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  14.68MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  14.68MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  14.68MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  14.68MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading   7.34MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  8.389MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  8.389MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading  8.389MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  8.389MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  15.73MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  8.389MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  16.78MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  9.437MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  17.83MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  17.83MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  17.83MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  17.83MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  17.83MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  18.87MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[2A[2K4dbdca1a513d: Downloading  10.49MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  18.87MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  11.53MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  18.87MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  18.87MB/30.2MB[1B[2A[2K4dbdca1a513d: Downloading  11.53MB/12.06MB[2B[1A[2Kbbeda6b4abb7: Downloading  18.87MB/30.2MB[1B[2A[2K4dbdca1a513d: Download complete [2B[1A[2Kbbeda6b4abb7: Downloading  19.92MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  19.92MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  19.92MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  20.97MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  20.97MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  20.97MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  22.02MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  22.02MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  23.07MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  23.07MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  23.07MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  24.12MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  24.12MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  24.12MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  25.17MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  25.17MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  25.17MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  26.21MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  26.21MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  26.21MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  27.26MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  27.26MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  28.31MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  28.31MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  28.31MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  29.36MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Downloading  29.36MB/30.2MB[1B[1A[2Kbbeda6b4abb7: Download complete [1B[1A[2Kbbeda6b4abb7: Extracting 1 s[1B[1A[2Kbbeda6b4abb7: Extracting 1 s[1B[1A[2Kbbeda6b4abb7: Extracting 1 s[1B[1A[2Kbbeda6b4abb7: Extracting 1 s[1B[3A[2K387b25ff7b94: Pull complete [3B[2A[2K4dbdca1a513d: Extracting 1 s[2B[1A[2Kbbeda6b4abb7: Pull complete [1B[4A[2K6e2fcafe72a4: Pull complete [4B[2A[2K4dbdca1a513d: Pull complete [2BDigest: sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+Status: Downloaded newer image for python:3.12-slim
+PODS=0   PAD=0      CHUNKED=0 -> {"namespace":"debug-lab","pod":"e18ad16bdac6","pods":0}
+
+    server: REQ GET /api/v1/namespaces/debug-lab/pods?limit=100 headers={'Host': 'kubernetes.default.svc', 'User-Agent': 'Go-http-client/1.1', 'Authorization': 'Bearer faketoken', 'Accept-Encoding': '
+    server: RESP bytes=90 chunked=False
+    app: 2026/10/10 10:35:50 GET /report -> 200 (from 192.168.65.1:21798)
+
+$ for args in "1 200 0" "1 6000 0" "2 6000 0" "6 6000 0" "2 6000 1" "1 1500 0" "1 3000 0" "1 4500 0"; do /tmp/fakeapi/run.sh $args 2>&1 | grep -vE "^\s*server: REQ"; done
+PODS=1   PAD=200    CHUNKED=0 -> {"namespace":"debug-lab","pod":"2f47884d30b4","pods":1}
+
+    server: RESP bytes=407 chunked=False
+    app: 2026/10/10 10:36:03 GET /report -> 200 (from 192.168.65.1:61398)
+PODS=1   PAD=6000   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=6207 chunked=False
+    app: 2026/10/10 10:36:09 GET /report -> 503 (from 192.168.65.1:52309)
+PODS=2   PAD=6000   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=12326 chunked=False
+    app: 2026/10/10 10:36:14 GET /report -> 503 (from 192.168.65.1:51742)
+PODS=6   PAD=6000   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=36802 chunked=False
+    app: 2026/10/10 10:36:20 GET /report -> 503 (from 192.168.65.1:37974)
+PODS=2   PAD=6000   CHUNKED=1 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=12326 chunked=True
+    app: 2026/10/10 10:36:26 GET /report -> 503 (from 192.168.65.1:17699)
+PODS=1   PAD=1500   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=1707 chunked=False
+    app: 2026/10/10 10:36:31 GET /report -> 503 (from 192.168.65.1:31767)
+PODS=1   PAD=3000   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=3207 chunked=False
+    app: 2026/10/10 10:36:37 GET /report -> 503 (from 192.168.65.1:64733)
+PODS=1   PAD=4500   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}
+
+    server: RESP bytes=4707 chunked=False
+    app: 2026/10/10 10:36:43 GET /report -> 503 (from 192.168.65.1:24668)
+
+$ for pad in 600 800 900 1000 1200; do /tmp/fakeapi/run.sh 1 $pad 0 2>&1 | grep -E "^PODS|RESP bytes" | tr "\n" " "; echo; done
+PODS=1   PAD=600    CHUNKED=0 -> {"namespace":"debug-lab","pod":"a5cc08810b3c","pods":1}     server: RESP bytes=807 chunked=False 
+PODS=1   PAD=800    CHUNKED=0 -> {"namespace":"debug-lab","pod":"0d47bdd496aa","pods":1}     server: RESP bytes=1007 chunked=False 
+PODS=1   PAD=900    CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}     server: RESP bytes=1107 chunked=False 
+PODS=1   PAD=1000   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}     server: RESP bytes=1207 chunked=False 
+PODS=1   PAD=1200   CHUNKED=0 -> {"error":"parse pod list: unexpected end of JSON input","status":"unhealthy"}     server: RESP bytes=1407 chunked=False 
+
+$ echo "Threshold is between 1007 and 1107 bytes => the reporter reads at most 1 KiB of the API response body. Checking the binary for how the list URL is built:"; strings -n 5 /tmp/eb-debug-app | grep -E "limit=|labelSelector|fieldSelector|PartialObjectMetadata|as=Table|remainingItemCount|continue=|/api/v1/namespaces" | cut -c1-200 | sort -u
+Threshold is between 1007 and 1107 bytes => the reporter reads at most 1 KiB of the API response body. Checking the binary for how the list URL is built:
+ runqueue= stopwait= runqsize= gfreecnt= throwing= spinning=atomicand8float64nanfloat32nan ptrSize=  targetpc= until pc=unknown pcruntime: ggoroutine /etc/hostsgetsockoptnetlinkribsetsockoptunixpacket
+Handshake of type omitemptyimage/bmpimage/gifimage/pngvideo/avifont/woffParseUint[%v = %d]data_flowauthoritywebsocketnet/http.HTTP/1.1 HTTP/1.0 <a href="video/mp4succeededSee OtherUse ProxyForbiddenNo
+startTheWorld: inconsistent mp->nextpruntime: unexpected SPWRITE function all goroutines are asleep - deadlock!cipher: message authentication failedcrypto/cipher: invalid buffer overlapcrypto/cipher: 
+
+$ grep -a -o -E "/api/v1/namespaces/[^\"[:space:]]{0,60}" /tmp/eb-debug-app | sort -u | cut -c1-120; grep -a -o -E "[A-Za-z_]{0,30}(limit|Limit|LIMIT)[A-Za-z_=0-9]{0,30}" /tmp/eb-debug-app | sort -u | grep -ivE "^(rlimit|setrlimit|getrlimit|limiter|Rlimit|limiterEvent|nolimit)" | head -20
+/api/v1/namespaces/%s/pods?limit=100tls:
+gcCPULimiterState
+gomemlimit
+GOMEMLIMIT
+GOMEMLIMIT=bad
+hitReadLimit
+initialReadLimitSize
+limit
+Limit
+limit=
+limit=100tls
+LimitedReader
+limithttp
+limiting
+LimitReader
+limittried
+limittrying
+makeLimiterEventStamp
+maxSizeLimit
+memoryLimitHeapGoal
+mgclimit
+
+$ echo "cleanup: experiment containers/network and the echo pod"; docker rm -f fake-api rep-fake >/dev/null 2>&1; docker network rm fakeapi >/dev/null 2>&1; kubectl -n debug-lab delete pod echo --now --ignore-not-found >/dev/null; sleep 5; kubectl -n debug-lab get pods
+cleanup: experiment containers/network and the echo pod
+NAME                        READY   STATUS      RESTARTS   AGE
+backend-7fcc9b57b-gbz9r     1/1     Running     0          10m
+gateway-575d7d78d5-jsdkz    1/1     Running     0          10m
+metrics-65fc77f7bf-pdt9b    1/1     Running     0          10m
+migrate-jbgpg               0/1     Completed   0          10m
+reporter-5f9f7d8bdc-w9f4z   0/1     Running     0          10m
+worker-6d8d8979fc-sm4ws     1/1     Running     0          10m
+
+$ echo "verify, three consecutive runs (the probe pod output is sometimes lost before kubectl attaches)"; for i in 1 2 3; do ./scenario.sh verify 2>&1 | tail -6; done
+verify, three consecutive runs (the probe pod output is sometimes lost before kubectl attaches)
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+  [32mPASS[0m  ServiceAccount debug-lab/reporter can list pods
+  [31mFAIL[0m  backend does not answer on http://backend:8080/healthz
+  [31mFAIL[0m  gateway /status does not report backend=ok
+  [31mFAIL[0m  reporter /report does not return a pod count
+
+[31m4 check(s) failing[0m, 7 passing. Keep digging — every failure is a symptom.
+
+$ echo "Why do the backend/gateway probes fail in verify while they work in-cluster? Run the exact incluster_probe body and show its raw output:"; out=$(kubectl -n debug-lab run eb-verify-probe --rm -i --restart=Never --image=busybox:1.36 --quiet --pod-running-timeout=90s --command -- sh -c "
+      wget -q -O- -T 4 http://backend:8080/healthz >/dev/null 2>&1 \
+        && echo PROBE_BACKEND=ok || echo PROBE_BACKEND=fail
+      GW=\$(wget -q -O- -T 6 http://gateway.debug-lab.svc/status 2>/dev/null)
+      echo \"PROBE_GATEWAY_BODY=\$GW\"
+      RP=\$(wget -q -O- -T 6 http://reporter:8080/report 2>/dev/null)
+      echo \"PROBE_REPORTER_BODY=\$RP\"
+      nslookup backend >/dev/null 2>&1 && echo PROBE_DNS=ok || echo PROBE_DNS=fail
+    " 2>/dev/null); echo "RAW OUTPUT (${#out} bytes):"; echo "$out"; echo "--- same probe with a 2s head start before producing output:"; kubectl -n debug-lab run eb-verify-probe2 --rm -i --restart=Never --image=busybox:1.36 --quiet --pod-running-timeout=90s --command -- sh -c "sleep 2; wget -q -O- -T 4 http://backend:8080/healthz >/dev/null 2>&1 && echo PROBE_BACKEND=ok || echo PROBE_BACKEND=fail; echo PROBE_GATEWAY_BODY=\$(wget -q -O- -T 6 http://gateway.debug-lab.svc/status 2>/dev/null)" 2>/dev/null
+Why do the backend/gateway probes fail in verify while they work in-cluster? Run the exact incluster_probe body and show its raw output:
+RAW OUTPUT (35 bytes):
+PROBE_REPORTER_BODY=
+PROBE_DNS=fail
+--- same probe with a 2s head start before producing output:
+PROBE_BACKEND=ok
+PROBE_GATEWAY_BODY={"app":"gateway","backend":"ok","backend_url":"http://backend:8080","pod":"gateway-575d7d78d5-jsdkz","self":"ok","version":"2.0.0"}
+
+$ echo "--- Part 4 session end ---"; date
+--- Part 4 session end ---
+Sat Oct 10 16:11:10 IST 2026
