@@ -49,7 +49,7 @@ jobs:
           test "$(docker exec smoke id -u)" = "10001"
           docker stop smoke
       - name: trivy (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: demo-service:${{ github.sha }}
           format: table
@@ -58,7 +58,7 @@ jobs:
           severity: HIGH,CRITICAL
           vuln-type: os,library
       - name: trivy config (Dockerfile + chart misconfigurations)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
