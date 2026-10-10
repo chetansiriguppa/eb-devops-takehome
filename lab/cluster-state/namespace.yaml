@@ -1,0 +1,9 @@
+# Part of the lab environment. DO NOT MODIFY — the grading harness re-applies
+# the pristine copy of everything in cluster-state/ before evaluating your
+# chart, so changes here cannot fix anything and will be flagged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: debug-lab
+  labels:
+    app.kubernetes.io/part-of: eb-debug-lab

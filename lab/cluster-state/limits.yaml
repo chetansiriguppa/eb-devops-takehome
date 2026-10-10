@@ -1,0 +1,23 @@
+# Part of the lab environment. DO NOT MODIFY — the grading harness re-applies
+# the pristine copy of everything in cluster-state/ before evaluating your
+# chart, so changes here cannot fix anything and will be flagged.
+#
+# This LimitRange mirrors the guardrails on our shared clusters: sane defaults
+# for pods that don't specify resources, and a hard per-container ceiling.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: debug-lab-guardrails
+  namespace: debug-lab
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      default:
+        cpu: 200m
+        memory: 128Mi
+      max:
+        cpu: "1"
+        memory: 512Mi

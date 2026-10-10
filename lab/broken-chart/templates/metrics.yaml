@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics
+  labels:
+    app: metrics
+    {{- include "lab.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.metrics.replicas }}
+  selector:
+    matchLabels:
+      app: metrics
+  template:
+    metadata:
+      labels:
+        app: metrics
+        {{- include "lab.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: metrics
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.common.port }}
+          env:
+            {{- range $name, $value := .Values.metrics.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.common.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.metrics.resources | nindent 12 }}

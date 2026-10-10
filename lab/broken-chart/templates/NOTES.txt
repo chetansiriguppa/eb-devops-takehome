@@ -1,0 +1,9 @@
+debug-lab installed into namespace {{ .Release.Namespace }}.
+
+Goal state:
+  * migrate Job: Completed
+  * backend, gateway, worker, reporter, metrics: all pods Running and 1/1 Ready
+  * gateway /status reports {"self":"ok","backend":"ok",...}
+
+Check your progress at any time:
+  ./scenario.sh verify

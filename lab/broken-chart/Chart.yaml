@@ -1,0 +1,8 @@
+apiVersion: v2
+name: debug-lab
+description: >-
+  Enterprise Bot debug lab — a small platform slice (gateway, backend, worker,
+  reporter, metrics, and a migration Job) that is currently broken in six ways.
+type: application
+version: 2.0.0
+appVersion: "1.0.1"
