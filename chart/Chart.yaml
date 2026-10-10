@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-service
+description: Small HTTP demo service (Enterprise Bot DevOps take-home, Part 2)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

@@ -1,0 +1,14 @@
+{{ .Chart.Name }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Check rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "demo-service.fullname" . }}
+
+{{- if .Values.ingress.enabled }}
+
+Through the Ingress (kind with ingress-nginx mapped to localhost:80):
+  curl -H 'Host: {{ .Values.ingress.host }}' http://localhost/
+{{- end }}
+
+Direct, via port-forward:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "demo-service.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/
