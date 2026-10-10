@@ -31,5 +31,5 @@ roleRef:
   name: reporter-read
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: {{ .Values.reporter.serviceAccountName }}
     namespace: {{ .Release.Namespace }}

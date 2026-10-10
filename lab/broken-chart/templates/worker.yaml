@@ -37,9 +37,16 @@ spec:
             timeoutSeconds: 3
           securityContext:
             runAsNonRoot: true
+            runAsUser: {{ .Values.common.runAsUser }}
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache
+              mountPath: {{ .Values.worker.cacheDir }}
+      volumes:
+        - name: cache
+          emptyDir: {}

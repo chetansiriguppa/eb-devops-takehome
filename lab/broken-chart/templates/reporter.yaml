@@ -42,6 +42,7 @@ spec:
             timeoutSeconds: 3
           securityContext:
             runAsNonRoot: true
+            runAsUser: {{ .Values.common.runAsUser }}
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:

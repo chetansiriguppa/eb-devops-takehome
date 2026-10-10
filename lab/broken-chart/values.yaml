@@ -12,8 +12,12 @@ image:
   pullPolicy: IfNotPresent
 
 common:
-  # Every workload serves plain HTTP on this port.
-  port: 8080
+  # Every workload serves plain HTTP on this port. The image listens on 8081 by default
+  # (confirmed from container logs); Services keep their public ports and target this.
+  port: 8081
+  # The image's USER is the name "nonroot" (uid 65532 in its /etc/passwd); kubelet needs a
+  # numeric uid to enforce runAsNonRoot.
+  runAsUser: 65532
 
 backend:
   replicas: 1
@@ -35,7 +39,7 @@ gateway:
     APP_MODE: "gateway"
     APP_NAME: "gateway"
     VERSION: "2.0.0"
-    BACKEND_URL: "http://backend.default.svc:8080"
+    BACKEND_URL: "http://backend:8080"
   resources:
     requests:
       cpu: "50m"
@@ -46,6 +50,8 @@ gateway:
 
 worker:
   replicas: 1
+  # The worker writes its cache here; root fs stays read-only, so this is an emptyDir mount.
+  cacheDir: /var/cache/app
   env:
     APP_MODE: "worker"
     APP_NAME: "worker"
@@ -79,12 +85,13 @@ metrics:
     APP_MODE: "api"
     APP_NAME: "metrics"
     VERSION: "2.0.0"
+  # Must stay under the namespace LimitRange max (cpu 1 / 512Mi) or pods are rejected at admission.
   resources:
     requests:
-      cpu: "2"
+      cpu: "50m"
       memory: "64Mi"
     limits:
-      cpu: "4"
+      cpu: "200m"
       memory: "128Mi"
 
 migrate:
